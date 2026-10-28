@@ -19,6 +19,9 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.23.x'
+      - name: Windows installer integration
+        if: runner.os == 'Windows'
+        run: pwsh -File scripts/test-install.ps1
       - run: go test ./...
       - run: go vet ./...
 
