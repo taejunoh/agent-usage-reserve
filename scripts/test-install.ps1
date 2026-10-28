@@ -24,28 +24,33 @@ $oldEnvironment = @{}
 foreach ($name in $environmentNames) {
     $oldEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
 }
-$script:latestRequestCount = 0
-$script:downloadUrls = @()
-
-function Invoke-RestMethod {
+$mockCallLog = [pscustomobject]@{
+    LatestRequestCount = 0
+    DownloadUrls = [System.Collections.Generic.List[string]]::new()
+}
+$originalRestFunction = Get-Item Function:\Invoke-RestMethod -ErrorAction SilentlyContinue
+$originalWebFunction = Get-Item Function:\Invoke-WebRequest -ErrorAction SilentlyContinue
+$restMock = {
     param([string]$Uri)
-    $script:latestRequestCount++
+    $mockCallLog.LatestRequestCount++
     if ($Uri -ne 'https://api.github.com/repos/taejunoh/codex-usage-reserve/releases/latest') {
         throw "Unexpected REST request: $Uri"
     }
     [pscustomobject]@{ tag_name = 'v0.1.0' }
-}
+}.GetNewClosure()
+Set-Item Function:\Invoke-RestMethod -Value $restMock
 
-function Invoke-WebRequest {
+$webMock = {
     param([string]$Uri, [string]$OutFile)
-    $script:downloadUrls += $Uri
+    $mockCallLog.DownloadUrls.Add($Uri)
     $name = [IO.Path]::GetFileName(([uri]$Uri).AbsolutePath)
     $source = Join-Path $fixtureDir $name
     if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
         throw "No fixture for download: $Uri"
     }
     Copy-Item -LiteralPath $source -Destination $OutFile -Force
-}
+}.GetNewClosure()
+Set-Item Function:\Invoke-WebRequest -Value $webMock
 
 try {
     New-Item -ItemType Directory -Path $buildDir, $fixtureDir -Force | Out-Null
@@ -78,9 +83,9 @@ try {
 
     # Latest lookup happens once; both fixture downloads use its exact tag.
     & $installer
-    Assert-That ($script:latestRequestCount -eq 1) 'latest release tag should be resolved once'
-    Assert-That ($script:downloadUrls.Count -eq 2) 'expected archive and checksum downloads'
-    foreach ($url in $script:downloadUrls) {
+    Assert-That ($mockCallLog.LatestRequestCount -eq 1) 'latest release tag should be resolved once'
+    Assert-That ($mockCallLog.DownloadUrls.Count -eq 2) 'expected archive and checksum downloads'
+    foreach ($url in $mockCallLog.DownloadUrls) {
         Assert-That ($url.StartsWith('https://fixture.invalid/releases/download/v0.1.0/')) "download was not pinned to v0.1.0: $url"
     }
     $installed = Join-Path $installDir 'codex-usage-reserve.exe'
@@ -95,12 +100,12 @@ try {
 
     # An explicit version without v is accepted and repeat enable preserves a custom threshold.
     & $installed set 15 --codex-home $codexHome
-    $script:downloadUrls = @()
+    $mockCallLog.DownloadUrls.Clear()
     $env:CODEX_USAGE_RESERVE_VERSION = '0.1.0'
     & $installer
-    Assert-That ($script:latestRequestCount -eq 1) 'explicit version should skip the latest lookup'
-    Assert-That ($script:downloadUrls.Count -eq 2) 'explicit version should download exactly two assets'
-    foreach ($url in $script:downloadUrls) {
+    Assert-That ($mockCallLog.LatestRequestCount -eq 1) 'explicit version should skip the latest lookup'
+    Assert-That ($mockCallLog.DownloadUrls.Count -eq 2) 'explicit version should download exactly two assets'
+    foreach ($url in $mockCallLog.DownloadUrls) {
         Assert-That ($url.StartsWith('https://fixture.invalid/releases/download/v0.1.0/')) "explicit version URL was not normalized and pinned: $url"
     }
     $status = (& $installed status --codex-home $codexHome | Out-String)
@@ -121,6 +126,16 @@ try {
     Assert-That ((Get-FileHash -LiteralPath $instructions -Algorithm SHA256).Hash -eq $instructionsHash) 'bad checksum mutated Codex instructions'
     Write-Output 'Windows installer integration checks passed'
 } finally {
+    if ($null -eq $originalRestFunction) {
+        Remove-Item Function:\Invoke-RestMethod -ErrorAction SilentlyContinue
+    } else {
+        Set-Item Function:\Invoke-RestMethod -Value $originalRestFunction.ScriptBlock
+    }
+    if ($null -eq $originalWebFunction) {
+        Remove-Item Function:\Invoke-WebRequest -ErrorAction SilentlyContinue
+    } else {
+        Set-Item Function:\Invoke-WebRequest -Value $originalWebFunction.ScriptBlock
+    }
     foreach ($name in $environmentNames) {
         if ($null -eq $oldEnvironment[$name]) {
             Remove-Item "Env:$name" -ErrorAction SilentlyContinue
