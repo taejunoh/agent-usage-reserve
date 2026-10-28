@@ -2,50 +2,43 @@
 
 `codex-usage-reserve`는 Codex 전역 지침에 사용량 여유분 정책을 추가하고 관리하는 비공식 로컬 도구입니다. 서비스, 텔레메트리, API 키 접근, 자격 증명 수집, 백그라운드 폴링이 없습니다.
 
-## 현재 체크아웃에서 빌드하고 활성화하기
+## 빠른 시작
 
-소스 빌드에는 Go 1.23 이상이 필요합니다.
+macOS 또는 Linux에서는 Homebrew로 설치하고 정책을 활성화하세요.
 
 ```sh
-mkdir -p "$HOME/.local/bin"
-go build -o "$HOME/.local/bin/codex-usage-reserve" ./cmd/codex-usage-reserve
-"$HOME/.local/bin/codex-usage-reserve" enable
+brew install taejunoh/tap/codex-usage-reserve
+codex-usage-reserve enable
 ```
 
-기본 기준은 잔여량 10%입니다. 명령은 수정한 지침 파일 경로를 출력합니다. `$HOME/.local/bin`이 `PATH`에 없다면 셸 설정에 직접 추가하세요.
-
-## 릴리스 설치
-
-아직 GitHub 릴리스와 Homebrew 탭은 공개되지 않았습니다. 첫 릴리스 이후 직접 설치 명령은 다음과 같습니다.
+Homebrew는 실행 파일만 설치하며, `enable`이 정책을 활성화합니다. 한 번에 설치와 활성화를 하려면 macOS/Linux에서 직접 설치기를 사용할 수 있습니다.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/taejunoh/codex-usage-reserve/main/install.sh | sh
 ```
 
-Windows PowerShell 설치는 첫 릴리스 이후 다음과 같습니다.
+Windows PowerShell에서는 다음 명령을 사용하세요.
 
 ```powershell
 irm https://raw.githubusercontent.com/taejunoh/codex-usage-reserve/main/install.ps1 | iex
 ```
 
-설치기는 최신 릴리스 태그를 한 번 조회하고 두 자산 다운로드를 그 태그에 고정합니다. SHA-256과 실행 파일 버전을 확인한 뒤 사용자 디렉터리에 설치하고 `enable`을 실행합니다. `sudo`를 사용하거나 셸 시작 파일을 수정하지 않습니다. Unix 기본 경로는 `~/.local/bin`, Windows는 `%LOCALAPPDATA%/Programs/codex-usage-reserve/bin`입니다. Windows에서는 출력된 디렉터리를 사용자 `PATH`에 추가하세요. 현재 PowerShell 세션에는 출력된 `$env:Path = "...;$env:Path"` 명령을 실행하면 됩니다.
+직접 설치기는 릴리스 체크섬과 실행 파일 버전을 확인하고 사용자 디렉터리에 설치한 뒤 `enable`을 자동 실행합니다. `sudo`를 사용하거나 셸 시작 파일을 수정하지 않습니다. Unix 경로는 `~/.local/bin`, Windows 경로는 `%LOCALAPPDATA%/Programs/codex-usage-reserve/bin`입니다. Windows에서는 출력된 디렉터리를 사용자 `PATH`에 추가하거나 현재 PowerShell 세션에서 출력된 `$env:Path = "...;$env:Path"` 명령을 실행하세요.
 
-첫 릴리스 및 별도 `homebrew-tap` 저장소 공개 후 Homebrew 설치 명령은 다음과 같습니다.
-
-```sh
-brew tap taejunoh/tap
-brew install taejunoh/tap/codex-usage-reserve
-codex-usage-reserve enable
-```
-
-Homebrew 설치는 실행 파일만 설치하며 정책 활성화는 별도로 실행합니다.
+릴리스 실행 파일을 설치하고 실행하는 데 Go, Node, Python, API 키는 필요하지 않습니다.
 
 ## 업데이트
 
-릴리스가 공개되면 직접 설치기를 다시 실행해 업데이트할 수 있습니다. 설치기는 기준값 없이 `enable`을 실행하므로 기존 사용자 지정 기준을 유지합니다.
+직접 설치를 업데이트하려면 해당 플랫폼 설치기를 다시 실행하세요. 설치기는 기준값 없이 `enable`을 실행하므로 사용자 지정 기준을 유지합니다.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/taejunoh/codex-usage-reserve/main/install.sh | sh
+```
+
+Windows PowerShell 설치도 다시 실행하세요.
+
+```powershell
+irm https://raw.githubusercontent.com/taejunoh/codex-usage-reserve/main/install.ps1 | iex
 ```
 
 Homebrew는 탭과 formula를 업데이트한 뒤 정책 상태를 확인하고, 비활성화되어 있으면 다시 활성화하세요.
@@ -114,14 +107,26 @@ Copy-Item -LiteralPath $backup -Destination $target -Force # 전체 파일 복�
 
 이는 행동 지침이며 계정 사용량을 강제로 제한하지 않습니다. 현재 Codex 데스크톱이나 작업 환경에서 제공되는 사용량 데이터와 도구에만 의존하므로 모든 CLI 또는 예약 실행에서 사용할 수 있다고 보장하지 않습니다. 데이터가 없으면 추측하지 않고 알립니다. 사용자의 모델 선택·위임 정책은 포함하지 않습니다.
 
-## 릴리스 자산과 탭 준비
+## 개발자용
 
-릴리스 태그를 만든 뒤 `scripts/build-release.sh 0.1.0`을 실행하면 6개 플랫폼 아카이브와 실제 SHA-256 체크섬을 `dist/`에 생성합니다. 태그 릴리스 GitHub Actions 워크플로가 이 파일로 릴리스를 게시합니다.
+### 저장소에서 빌드하고 활성화
 
-릴리스의 `checksums.txt`를 받은 뒤 별도 탭 체크아웃에 Homebrew formula를 생성합니다.
+소스 빌드에는 Go 1.23 이상이 필요합니다.
+
+```sh
+mkdir -p "$HOME/.local/bin"
+go build -o "$HOME/.local/bin/codex-usage-reserve" ./cmd/codex-usage-reserve
+"$HOME/.local/bin/codex-usage-reserve" enable
+```
+
+기본 기준은 잔여량 10%입니다. 명령은 수정한 지침 파일 경로를 출력합니다. `$HOME/.local/bin`이 `PATH`에 없다면 셸 설정에 직접 추가하세요.
+
+릴리스 준비에는 `scripts/build-release.sh 0.1.0`을 사용합니다. 6개 플랫폼 아카이브와 실제 SHA-256 체크섬을 `dist/`에 만들며, 태그 릴리스 GitHub Actions 워크플로가 이를 게시합니다.
+
+별도 tap 체크아웃에서 릴리스 체크섬 manifest로 Homebrew formula를 생성하려면:
 
 ```sh
 python3 scripts/generate-formula.py 0.1.0 dist/checksums.txt ../homebrew-tap/Formula/codex-usage-reserve.rb
 ```
 
-생성기는 6개 릴리스 아카이브의 실제 체크섬을 모두 요구하고 macOS/Linux용 실제 URL과 해시를 씁니다. formula를 탭 저장소에 검토·게시한 뒤에만 Homebrew 설치가 가능하다고 안내하세요.
+생성기는 6개 릴리스 아카이브의 실제 체크섬을 모두 요구하고 macOS/Linux용 실제 URL과 해시를 씁니다. 생성된 formula는 별도 tap 저장소에서 검토한 뒤 게시하세요.

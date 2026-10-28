@@ -2,50 +2,43 @@
 
 `codex-usage-reserve` manages a small usage-reserve policy in your global Codex instructions. It is an unofficial local utility. It has no service, telemetry, API-key access, credential scraping, or background polling.
 
-## Build and enable from this checkout
+## Quick start
 
-Go 1.23 or newer is required to build from source.
+Install with Homebrew on macOS or Linux:
 
 ```sh
-mkdir -p "$HOME/.local/bin"
-go build -o "$HOME/.local/bin/codex-usage-reserve" ./cmd/codex-usage-reserve
-"$HOME/.local/bin/codex-usage-reserve" enable
+brew install taejunoh/tap/codex-usage-reserve
+codex-usage-reserve enable
 ```
 
-The default threshold is 10% remaining. The command prints the instruction file it changed. If `$HOME/.local/bin` is not on `PATH`, add it in your shell configuration yourself.
-
-## Install a release
-
-GitHub Releases and a Homebrew tap are not published yet. After the first release, the direct installer will be:
+Homebrew installs the executable only; `enable` activates the policy. To install and enable in one step instead, use the direct installer on macOS/Linux:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/taejunoh/codex-usage-reserve/main/install.sh | sh
 ```
 
-On Windows PowerShell, after that release:
+On Windows PowerShell:
 
 ```powershell
 irm https://raw.githubusercontent.com/taejunoh/codex-usage-reserve/main/install.ps1 | iex
 ```
 
-The installers select the latest release, pin both asset downloads to its tag, verify SHA-256 and the executable version, install to a user directory, then run `enable`. They do not use `sudo` or edit shell startup files. Unix installs to `~/.local/bin`; Windows installs to `%LOCALAPPDATA%/Programs/codex-usage-reserve/bin`. On Windows, add the printed directory to your user `PATH`; for the current PowerShell session, run the printed `$env:Path = "...;$env:Path"` command.
+Direct installers verify the release checksum and executable version, install to a user directory, then automatically run `enable`. They do not use `sudo` or modify shell startup files. Unix installs to `~/.local/bin`; Windows installs to `%LOCALAPPDATA%/Programs/codex-usage-reserve/bin`. Add the printed Windows directory to your user `PATH`, or run the printed `$env:Path = "...;$env:Path"` command for the current PowerShell session.
 
-After the first release and publication of the separate `homebrew-tap` repository, Homebrew commands will be:
-
-```sh
-brew tap taejunoh/tap
-brew install taejunoh/tap/codex-usage-reserve
-codex-usage-reserve enable
-```
-
-Homebrew installs only the executable; activation is explicit.
+Installing and running the released executable requires no Go, Node, Python, or API keys.
 
 ## Update
 
-After a release is available, rerun the direct installer to update. It runs `enable` without a threshold, so an existing custom threshold is preserved.
+To update a direct install, rerun the same installer for your platform. It runs `enable` without a threshold, preserving your custom threshold.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/taejunoh/codex-usage-reserve/main/install.sh | sh
+```
+
+On Windows, rerun the PowerShell installer:
+
+```powershell
+irm https://raw.githubusercontent.com/taejunoh/codex-usage-reserve/main/install.ps1 | iex
 ```
 
 For Homebrew, update the tap and formula, check the policy, and enable it if needed:
@@ -114,14 +107,26 @@ The policy guides Codex to check the available account usage limits before ordin
 
 This is behavioral guidance, not a hard account cap. It can only use usage data and tools available to the current Codex desktop or task environment; it does not promise that every CLI or scheduled run has those tools. Missing usage data is reported without guessing. It does not include any user's custom model-selection or delegation policies.
 
-## Build release assets and prepare a tap
+## For developers
 
-After a release tag exists, `scripts/build-release.sh 0.1.0` creates six platform archives and their real SHA-256 entries in `dist/`. The tagged GitHub Actions workflow uses those files to publish the Release.
+### Build and enable from source
 
-After downloading that release's `checksums.txt`, generate the formula in a separate tap checkout:
+Go 1.23 or newer is required to build from source.
+
+```sh
+mkdir -p "$HOME/.local/bin"
+go build -o "$HOME/.local/bin/codex-usage-reserve" ./cmd/codex-usage-reserve
+"$HOME/.local/bin/codex-usage-reserve" enable
+```
+
+The default threshold is 10% remaining. The command prints the instruction file it changed. If `$HOME/.local/bin` is not on `PATH`, add it in your shell configuration yourself.
+
+To prepare a release, `scripts/build-release.sh 0.1.0` creates six platform archives and their real SHA-256 entries in `dist/`. The tagged GitHub Actions workflow uses those files to publish the Release.
+
+Generate a Homebrew formula from the release checksum manifest in a separate tap checkout:
 
 ```sh
 python3 scripts/generate-formula.py 0.1.0 dist/checksums.txt ../homebrew-tap/Formula/codex-usage-reserve.rb
 ```
 
-The generator requires real checksums for all six release archives and embeds the macOS/Linux asset URLs and hashes. Review and publish the generated formula in the tap repository before describing Homebrew as available.
+The generator requires real checksums for all six release archives and embeds the macOS/Linux asset URLs and hashes. Review and publish the generated formula in the separate tap repository.
