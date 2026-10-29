@@ -1,64 +1,134 @@
 # Agent Usage Reserve
 
-`agent-usage-reserve` manages a small usage-reserve policy in your global Codex and Claude Code instructions. It is an unofficial local utility. It has no service, telemetry, API-key access, credential scraping, or background polling.
+**Keep some of your Codex or Claude plan usage in reserve for scheduled tasks.**
 
-## Demo
+Once installed, Codex and Claude check how much of your plan usage is left (the 5-hour limit and the weekly limit) before they start ordinary work and between major steps. When 10% or less is left, they save their progress, stop, and tell you:
+
+- which limit is low and how much is left,
+- what they finished so far,
+- how to pick up again.
+
+Your scheduled tasks still run, so the remaining usage stays available for them. If you want to finish the current task anyway, just tell the agent to continue.
+
+[한국어 설명](README.ko.md)
 
 ![Actual CLI output in an isolated demo profile](docs/assets/demo.gif)
 
-Actual CLI output · isolated demo profile with both agents. The demo configures agent guidance; it is not an enforced usage cap. Temporary paths are shortened for readability.
+Actual CLI output in an isolated demo profile with both agents. Temporary paths are shortened.
 
-## Quick start
+> This is guidance the agent follows, not a hard limit on your account. It runs entirely on your computer: no account login, API key, server, or tracking.
 
-Install with Homebrew on macOS or Linux:
+## Where it works
+
+| Agent | Works in | Notes |
+| --- | --- | --- |
+| **Claude** | The **Code** tab of the Claude desktop app | The terminal `claude` command has no way to read usage, so there the agent only says usage can't be checked. |
+| **Codex** | Codex apps and environments that show your usage limits | Some command-line or scheduled runs may not show usage. |
+
+## Install
+
+Pick **one** of these.
+
+**Mac or Linux, one command** (installs and turns the reserve on):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/taejunoh/agent-usage-reserve/main/install.sh | sh
+```
+
+**Windows**, in PowerShell (installs and turns the reserve on):
+
+```powershell
+irm https://raw.githubusercontent.com/taejunoh/agent-usage-reserve/main/install.ps1 | iex
+```
+
+**Homebrew** users on Mac or Linux (two commands: install, then turn on):
 
 ```sh
 brew install taejunoh/tap/agent-usage-reserve
 agent-usage-reserve enable
 ```
 
-Homebrew installs the executable only; `enable` activates the policy. To install and enable in one step instead, use the direct installer on macOS/Linux:
+### What happens during install
 
-```sh
-curl -fsSL https://raw.githubusercontent.com/taejunoh/agent-usage-reserve/main/install.sh | sh
-```
+- If you use only Codex or only Claude, the reserve is turned on for it at 10%.
+- If you use both, you are asked once:
 
-On Windows PowerShell:
+  ```text
+  Found Codex and Claude. Apply the usage reserve to:
+    1) Both
+    2) Claude only
+    3) Codex only
+  Choose [1]:
+  ```
 
-```powershell
-irm https://raw.githubusercontent.com/taejunoh/agent-usage-reserve/main/install.ps1 | iex
-```
+  Press Enter for both.
+- If the installer can't ask (for example in an automated setup), it changes nothing and prints the exact command to run instead, such as `agent-usage-reserve enable --only all`.
+- If neither Codex nor Claude is installed yet, nothing changes. Install one of them first, then run `agent-usage-reserve enable`.
 
-`enable` looks for your Codex home (`~/.codex`, or `CODEX_HOME`) and your Claude home (`~/.claude`, or `CLAUDE_CONFIG_DIR`). If it finds one, it applies the policy there; if it finds both and neither is enabled yet, it asks whether to use Both, Claude only, or Codex only (pressing Enter chooses Both). Repeating `enable` keeps agents that are already enabled, and asks before adding a newly found one. To skip the question, use `--only claude`, `--only codex`, or `--only all`. Without an interactive terminal it changes nothing and prints the `--only` commands to run instead; the direct installer then still reports that the executable was installed.
+The installers check the download's checksum, install only into your user folder (`~/.local/bin` on Mac/Linux, `%LOCALAPPDATA%\Programs\agent-usage-reserve\bin` on Windows), and never ask for an administrator password. If the installer prints a line about `PATH`, follow it so you can type `agent-usage-reserve` directly.
 
-Direct installers verify the release checksum and executable version, install to a user directory, then automatically run `enable`. They do not use `sudo` or modify shell startup files. Unix installs to `~/.local/bin`; Windows installs to `%LOCALAPPDATA%/Programs/agent-usage-reserve/bin`. Add the printed Windows directory to your user `PATH`, or run the printed `$env:Path = "...;$env:Path"` command for the current PowerShell session.
+## Everyday commands
 
-Installing and running the released executable requires no Go, Node, Python, or API keys.
+| To do this | Run |
+| --- | --- |
+| See what is turned on | `agent-usage-reserve status` |
+| Turn it on (or add the other agent) | `agent-usage-reserve enable` |
+| Change the reserve to 15% | `agent-usage-reserve set 15` |
+| Turn it off | `agent-usage-reserve disable` |
+| Show the version | `agent-usage-reserve --version` |
+
+The reserve can be any whole number from 1 to 99, and Codex and Claude can each have their own. To change only one agent, add `--only claude` or `--only codex`, for example `agent-usage-reserve set 20 --only codex`.
+
+`status` shows what is installed in your instruction files. It doesn't look up your actual account usage.
 
 ## Update
 
-To update a direct install, rerun the same installer for your platform. It runs `enable` without a threshold, preserving each enabled agent's custom threshold.
+Run the same install command again. Your current reserve settings are kept.
 
-```sh
-curl -fsSL https://raw.githubusercontent.com/taejunoh/agent-usage-reserve/main/install.sh | sh
-```
-
-On Windows, rerun the PowerShell installer:
-
-```powershell
-irm https://raw.githubusercontent.com/taejunoh/agent-usage-reserve/main/install.ps1 | iex
-```
-
-For Homebrew, update the tap and formula, check the policy, and enable it if needed:
+With Homebrew:
 
 ```sh
 brew update
 brew upgrade taejunoh/tap/agent-usage-reserve
-agent-usage-reserve status
-agent-usage-reserve enable  # if status says disabled; keeps the current threshold
 ```
 
-## Commands
+## Uninstall
+
+1. Turn the reserve off: `agent-usage-reserve disable`
+2. Remove the program: `brew uninstall taejunoh/tap/agent-usage-reserve` for Homebrew, or otherwise delete the `agent-usage-reserve` file from the install folder above.
+
+Do step 1 first. Removing the program alone leaves the reserve in your instruction files.
+
+## Upgrading from codex-usage-reserve
+
+This tool used to be called `codex-usage-reserve` and only supported Codex. It now supports Claude too.
+
+1. Update with the same method you installed with:
+   - **Homebrew:** `brew update`, then `brew upgrade taejunoh/tap/agent-usage-reserve`. Homebrew moves the old name to the new one automatically.
+   - **Install command:** run the new install command above. The old install command also still works. Either one removes the old `codex-usage-reserve` program from the folder it installs into, and warns if another copy is still around.
+2. Run `agent-usage-reserve enable` once. It keeps your Codex setting and, if you also use Claude, asks `Also enable for Claude? [Y/n]`.
+
+Your existing Codex reserve keeps working the whole time.
+
+## How it works and what it changes
+
+The tool adds one clearly marked section to a single instruction file per agent, and changes nothing else:
+
+- **Claude:** `CLAUDE.md` in your Claude folder (`~/.claude`, or `CLAUDE_CONFIG_DIR` if you set it)
+- **Codex:** `AGENTS.md` in your Codex folder (`~/.codex`, or `CODEX_HOME` if you set it). If you have a non-empty `AGENTS.override.md`, that file is used instead, because Codex reads it first.
+
+Before every change it saves a private backup of the file in the same folder. `disable` removes only its section and leaves the rest of your text exactly as it was.
+
+The policy details:
+
+- Scheduled task runs are exempt. Ordinary manual work stops at the reserve.
+- "Continue" applies only to the task you name (or the current one). You can also give a lower temporary reserve for that task, such as "continue down to 3%".
+- Subagents skip the check; the main session handles it.
+- If usage can't be read, the agent says so instead of guessing.
+
+## Advanced
+
+### Options
 
 ```text
 agent-usage-reserve enable  [--threshold 10] [--only claude|codex|all] [--codex-home PATH] [--claude-home PATH]
@@ -68,21 +138,28 @@ agent-usage-reserve disable [--only claude|codex|all] [--codex-home PATH] [--cla
 agent-usage-reserve --version
 ```
 
-Thresholds are whole percentages from 1 to 99, stored separately for each agent. Repeating `enable` without `--threshold` keeps each agent's current threshold. `set` and `disable` without `--only` act on every enabled agent; `set` changes an enabled policy. `status` lists every detected agent and reports the managed policy and its target file; it does not check account usage or verify model behavior.
+- `--only` picks agents without asking. `--codex-home` / `--claude-home` point at a different folder, and also select that agent.
+- An agent counts as found when its folder exists. `enable` creates the folder for an agent you select explicitly.
+- Running `enable` again keeps agents that are already on and their reserves; `--threshold` changes them.
+- `set` and `disable` without `--only` act on every agent that is on.
+- When a choice is needed but there is no terminal to ask in, or no agent is found, `enable` changes nothing and exits with status 3.
+- Before replacing a file, the tool checks whether something else changed it during the operation. This catches many outside edits but can't catch every simultaneous write.
 
-The tool updates only its marked policy block. For Codex that is the effective global `AGENTS.override.md` or `AGENTS.md` under your Codex home; for Claude it is `CLAUDE.md` in your Claude home. It keeps a private backup of the original file in that agent's home directory before each mutation. `disable` removes the managed block while preserving unrelated text. Before replacement, the tool checks whether the target changed during its operation; this catches many external edits but cannot serialize unrelated editors or guarantee detection of every concurrent write. Disabling the policy and uninstalling the executable are separate: run `disable`, then remove the binary or run `brew uninstall taejunoh/tap/agent-usage-reserve`.
+### Restoring a backup
 
-### Backup recovery
+Use `agent-usage-reserve disable` to remove the section. Restore a backup only if you need the whole file back as it was.
 
-Prefer `agent-usage-reserve disable` to remove the managed block. Backups are named `.agent-usage-reserve-backup-*` and live in each agent's own home directory (Codex home and Claude home). Find them on macOS/Linux with:
+Backups are named `.agent-usage-reserve-backup-*` and stay in each agent's folder. Backups made before the rename are named `.codex-usage-reserve-backup-*` and are kept as they are.
+
+A full restore replaces the entire file, so anything you edited after that backup is lost. Restore a backup only into the file of the folder it is in. For Codex, use the file that `status` shows (`AGENTS.md` or `AGENTS.override.md`).
+
+On Mac/Linux:
 
 ```sh
 codex_home=${CODEX_HOME:-"$HOME/.codex"}
 claude_home=${CLAUDE_CONFIG_DIR:-"$HOME/.claude"}
 find "$codex_home" "$claude_home" -type f -name '.agent-usage-reserve-backup-*' -print
 ```
-
-Inspect the selected backup and current target first. A full restore replaces the entire instruction file and can erase edits made after that backup. Make a copy of the current target before an intentional full restore. A backup belongs to the home directory it is in: restore it only to that agent's file. For Codex, choose the actual active target (`AGENTS.md` or `AGENTS.override.md`) printed by `status`; for Claude, the target is `CLAUDE.md`.
 
 ```sh
 backup='/full/path/to/.agent-usage-reserve-backup-...'
@@ -93,7 +170,7 @@ cp -p "$target" "$target.before-restore"
 cp -p "$backup" "$target" # only when you intend to restore the complete file
 ```
 
-On Windows PowerShell, list backups and review the selected backup and target:
+On Windows PowerShell:
 
 ```powershell
 $codexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $HOME '.codex' }
@@ -111,34 +188,11 @@ Copy-Item -LiteralPath $target -Destination "$target.before-restore"
 Copy-Item -LiteralPath $backup -Destination $target -Force # only for an intentional full-file restore
 ```
 
-Copy only the bytes you intend to restore if you need to preserve later edits. Backups from before the rename are named `.codex-usage-reserve-backup-*`; the tool leaves them in place, and the same steps apply with that name.
-
-## Scope and limits
-
-The policy guides the agent to check the available account usage limits before ordinary work and between major stages. Actual scheduled runs are exempt. An explicit request to continue applies only to the named task, or the current task if none is named. A user-specified temporary threshold takes precedence. Subagents skip the check; the main session handles it.
-
-This is behavioral guidance, not a hard account cap. It can only use usage data and tools available to the current environment, and it does not promise that every run has those tools. Missing usage data is reported without guessing. It does not include any user's custom model-selection or delegation policies.
-
-- **Codex:** works where the Codex desktop or task environment exposes the account usage limits; it does not promise that every CLI or scheduled run has them.
-- **Claude Code:** works in the Claude desktop app's Code tab, which exposes the usage tool. The terminal `claude` CLI exposes no usage tool, so there the policy only discloses that usage is unavailable.
-
-## Existing codex-usage-reserve users
-
-This tool was renamed from `codex-usage-reserve` and now manages Codex and Claude Code.
-
-- **Homebrew:** `brew update` then `brew upgrade taejunoh/tap/agent-usage-reserve`. The tap renames the old formula, so the upgrade migrates automatically.
-- **Direct installer:** rerun the installer. It removes the old `codex-usage-reserve` executable from the install directory (on Windows also from the old default directory, and suggests removing that directory from your user `PATH`), because the old executable cannot see the new policy marker.
-- **Your existing policy** keeps working. It is converted to the new marker the next time you run `enable` or `set`, keeping its threshold.
-- **After upgrading, run `agent-usage-reserve enable` once** (Homebrew or not). `status` already shows Codex as enabled, but `enable` offers to add Claude (it asks "Also enable for Claude? [Y/n]") and converts the old marker to the new one.
-- Old `.codex-usage-reserve-backup-*` files are kept untouched.
-
-The old one-line install commands keep working through GitHub's redirect after the repository rename.
+To keep later edits, copy over only the part you want back instead of the whole file.
 
 ## For developers
 
-### Build and enable from source
-
-Go 1.23 or newer is required to build from source.
+The released program needs no Go, Node, Python or API key. Building from source needs Go 1.23 or newer:
 
 ```sh
 mkdir -p "$HOME/.local/bin"
@@ -146,19 +200,19 @@ go build -o "$HOME/.local/bin/agent-usage-reserve" ./cmd/agent-usage-reserve
 "$HOME/.local/bin/agent-usage-reserve" enable
 ```
 
-The default threshold is 10% remaining. The command prints the instruction file it changed for each agent. If `$HOME/.local/bin` is not on `PATH`, add it in your shell configuration yourself.
+If `$HOME/.local/bin` is not on `PATH`, add it in your shell configuration yourself.
 
-To prepare a release, `scripts/build-release.sh 0.2.0` creates six platform archives and their real SHA-256 entries in `dist/`. The tagged GitHub Actions workflow uses those files to publish the Release.
+To prepare a release, `scripts/build-release.sh 0.2.0` creates six platform archives and their SHA-256 entries in `dist/`. Pushing a `v*` tag runs the release workflow, which publishes them. A release is marked Latest only when its commit is already on `main`, because the install commands read `main` and the latest release together.
 
-Generate a Homebrew formula from the release checksum manifest in a separate tap checkout. `--renames` also writes `formula_renames.json`, which maps the old formula name to the new one:
+Generate the Homebrew formula from the release checksums in a separate checkout of the tap. `--renames` also writes `formula_renames.json`, which maps the old formula name to the new one:
 
 ```sh
 python3 scripts/generate-formula.py 0.2.0 dist/checksums.txt ../homebrew-tap/Formula/agent-usage-reserve.rb --renames ../homebrew-tap/formula_renames.json
 ```
 
-The generator requires real checksums for all six release archives and embeds the macOS/Linux asset URLs and hashes. Review and publish the generated formula in the separate tap repository.
+The generator requires real checksums for all six archives. Review and publish the generated formula in the tap repository.
 
-To regenerate the demo GIF and transcript, build the binary and run the script (it needs Python with Pillow and a monospace font):
+To regenerate the demo GIF and transcript, build the binary and run the script (needs Python with Pillow and a monospace font):
 
 ```sh
 go build -o /tmp/agent-usage-reserve ./cmd/agent-usage-reserve

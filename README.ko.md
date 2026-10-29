@@ -1,64 +1,134 @@
 # Agent Usage Reserve
 
-`agent-usage-reserve`는 Codex와 Claude Code의 전역 지침에 사용량 여유분 정책을 추가하고 관리하는 비공식 로컬 도구입니다. 서비스, 텔레메트리, API 키 접근, 자격 증명 수집, 백그라운드 폴링이 없습니다.
+**Codex나 Claude 요금제 사용량의 일부를 예약 작업용으로 남겨 둡니다.**
 
-## 데모
+설치하면 Codex와 Claude가 일반 작업을 시작하기 전과 큰 단계 사이마다 남은 사용량(5시간 한도와 주간 한도)을 확인합니다. 남은 양이 10% 이하가 되면 진행 상황을 저장하고 멈춘 뒤 다음을 알려 줍니다.
+
+- 어느 한도가 얼마나 남았는지
+- 지금까지 끝낸 작업
+- 다시 이어서 하는 방법
+
+예약 작업은 계속 실행되므로, 남은 사용량을 예약 작업에 쓸 수 있습니다. 지금 작업을 그래도 끝내고 싶다면 에이전트에게 계속하라고 말하면 됩니다.
+
+[English](README.md)
 
 ![격리된 데모 프로필에서 실행한 실제 CLI 출력](docs/assets/demo.gif)
 
-실제 CLI 출력 · 두 에이전트가 모두 있는 격리된 데모 프로필입니다. 이 데모는 에이전트 지침을 설정하며 사용량을 강제 제한하지 않습니다. 임시 경로는 읽기 쉽도록 줄였습니다.
+두 에이전트가 모두 있는 격리된 데모 프로필에서 실행한 실제 CLI 출력입니다. 임시 경로는 줄여서 표시했습니다.
 
-## 빠른 시작
+> 에이전트가 따르는 지침이며, 계정 사용량을 강제로 막지는 않습니다. 모두 내 컴퓨터 안에서만 동작합니다. 계정 로그인, API 키, 서버, 추적이 없습니다.
 
-macOS 또는 Linux에서는 Homebrew로 설치하고 정책을 활성화하세요.
+## 어디서 동작하나요
+
+| 에이전트 | 동작하는 곳 | 참고 |
+| --- | --- | --- |
+| **Claude** | Claude 데스크톱 앱의 **Code** 탭 | 터미널의 `claude` 명령에는 사용량을 읽는 방법이 없어서, 그곳에서는 사용량을 확인할 수 없다고만 알립니다. |
+| **Codex** | 사용량 한도를 보여 주는 Codex 앱과 환경 | 일부 명령줄 실행이나 예약 실행에서는 사용량이 보이지 않을 수 있습니다. |
+
+## 설치
+
+아래 중 **하나만** 고르세요.
+
+**Mac 또는 Linux, 명령 하나로** (설치하고 바로 켭니다):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/taejunoh/agent-usage-reserve/main/install.sh | sh
+```
+
+**Windows**, PowerShell에서 (설치하고 바로 켭니다):
+
+```powershell
+irm https://raw.githubusercontent.com/taejunoh/agent-usage-reserve/main/install.ps1 | iex
+```
+
+Mac 또는 Linux에서 **Homebrew**를 쓴다면 (명령 두 개: 설치한 뒤 켜기):
 
 ```sh
 brew install taejunoh/tap/agent-usage-reserve
 agent-usage-reserve enable
 ```
 
-Homebrew는 실행 파일만 설치하며, `enable`이 정책을 활성화합니다. 한 번에 설치와 활성화를 하려면 macOS/Linux에서 직접 설치기를 사용할 수 있습니다.
+### 설치할 때 일어나는 일
 
-```sh
-curl -fsSL https://raw.githubusercontent.com/taejunoh/agent-usage-reserve/main/install.sh | sh
-```
+- Codex나 Claude 중 하나만 쓰면, 그쪽에 10%로 켜집니다.
+- 둘 다 쓰면 한 번 물어봅니다.
 
-Windows PowerShell에서는 다음 명령을 사용하세요.
+  ```text
+  Found Codex and Claude. Apply the usage reserve to:
+    1) Both
+    2) Claude only
+    3) Codex only
+  Choose [1]:
+  ```
 
-```powershell
-irm https://raw.githubusercontent.com/taejunoh/agent-usage-reserve/main/install.ps1 | iex
-```
+  Enter를 누르면 둘 다 켜집니다.
+- 설치기가 물어볼 수 없는 상황(예: 자동 설정)이면 아무것도 바꾸지 않고, 대신 실행할 명령(예: `agent-usage-reserve enable --only all`)을 알려 줍니다.
+- Codex와 Claude가 둘 다 아직 설치되지 않았다면 아무것도 바꾸지 않습니다. 둘 중 하나를 먼저 설치한 뒤 `agent-usage-reserve enable`을 실행하세요.
 
-`enable`은 Codex 홈(`~/.codex`, 또는 `CODEX_HOME`)과 Claude 홈(`~/.claude`, 또는 `CLAUDE_CONFIG_DIR`)을 찾습니다. 하나만 찾으면 그곳에 정책을 적용하고, 둘 다 찾았는데 아직 어느 쪽도 활성화하지 않았다면 둘 다, Claude만, Codex만 중에서 고르라고 묻습니다(Enter를 누르면 둘 다). `enable`을 반복해도 이미 활성화된 에이전트는 그대로 유지되며, 새로 발견된 에이전트를 추가하기 전에는 먼저 묻습니다. 질문 없이 진행하려면 `--only claude`, `--only codex`, `--only all`을 사용하세요. 대화형 터미널이 없으면 아무것도 변경하지 않고 실행할 `--only` 명령을 출력하며, 직접 설치기는 이 경우에도 실행 파일은 설치됐다고 알려줍니다.
+설치기는 내려받은 파일의 체크섬을 확인하고, 내 사용자 폴더에만 설치하며(Mac/Linux는 `~/.local/bin`, Windows는 `%LOCALAPPDATA%\Programs\agent-usage-reserve\bin`), 관리자 비밀번호를 묻지 않습니다. 설치기가 `PATH`에 관한 줄을 출력하면 그대로 따라 하세요. 그래야 `agent-usage-reserve`를 바로 입력해 쓸 수 있습니다.
 
-직접 설치기는 릴리스 체크섬과 실행 파일 버전을 확인하고 사용자 디렉터리에 설치한 뒤 `enable`을 자동 실행합니다. `sudo`를 사용하거나 셸 시작 파일을 수정하지 않습니다. Unix 경로는 `~/.local/bin`, Windows 경로는 `%LOCALAPPDATA%/Programs/agent-usage-reserve/bin`입니다. Windows에서는 출력된 디렉터리를 사용자 `PATH`에 추가하거나 현재 PowerShell 세션에서 출력된 `$env:Path = "...;$env:Path"` 명령을 실행하세요.
+## 자주 쓰는 명령
 
-릴리스 실행 파일을 설치하고 실행하는 데 Go, Node, Python, API 키는 필요하지 않습니다.
+| 하고 싶은 일 | 실행할 명령 |
+| --- | --- |
+| 무엇이 켜져 있는지 보기 | `agent-usage-reserve status` |
+| 켜기 (또는 다른 에이전트 추가) | `agent-usage-reserve enable` |
+| 남겨 둘 양을 15%로 바꾸기 | `agent-usage-reserve set 15` |
+| 끄기 | `agent-usage-reserve disable` |
+| 버전 보기 | `agent-usage-reserve --version` |
+
+남겨 둘 양은 1부터 99까지의 정수이고, Codex와 Claude에 따로 정할 수 있습니다. 한쪽만 바꾸려면 `--only claude`나 `--only codex`를 붙이세요. 예: `agent-usage-reserve set 20 --only codex`
+
+`status`는 지침 파일에 무엇이 설치돼 있는지만 보여 줍니다. 실제 계정 사용량을 조회하지는 않습니다.
 
 ## 업데이트
 
-직접 설치를 업데이트하려면 해당 플랫폼 설치기를 다시 실행하세요. 설치기는 기준값 없이 `enable`을 실행하므로 활성화된 에이전트별 사용자 지정 기준을 유지합니다.
+설치할 때 쓴 명령을 다시 실행하세요. 지금 설정은 그대로 유지됩니다.
 
-```sh
-curl -fsSL https://raw.githubusercontent.com/taejunoh/agent-usage-reserve/main/install.sh | sh
-```
-
-Windows PowerShell 설치도 다시 실행하세요.
-
-```powershell
-irm https://raw.githubusercontent.com/taejunoh/agent-usage-reserve/main/install.ps1 | iex
-```
-
-Homebrew는 탭과 formula를 업데이트한 뒤 정책 상태를 확인하고, 비활성화되어 있으면 다시 활성화하세요.
+Homebrew라면:
 
 ```sh
 brew update
 brew upgrade taejunoh/tap/agent-usage-reserve
-agent-usage-reserve status
-agent-usage-reserve enable  # status가 비활성 상태일 때 실행; 현재 기준 유지
 ```
 
-## 명령
+## 삭제
+
+1. 먼저 끕니다: `agent-usage-reserve disable`
+2. 프로그램을 지웁니다: Homebrew라면 `brew uninstall taejunoh/tap/agent-usage-reserve`, 아니면 위 설치 폴더에서 `agent-usage-reserve` 파일을 삭제합니다.
+
+1번을 먼저 하세요. 프로그램만 지우면 지침 파일에 설정이 그대로 남습니다.
+
+## codex-usage-reserve에서 넘어오는 경우
+
+이 도구의 예전 이름은 `codex-usage-reserve`였고 Codex만 지원했습니다. 이제 Claude도 지원합니다.
+
+1. 설치했던 방법 그대로 업데이트하세요.
+   - **Homebrew:** `brew update` 후 `brew upgrade taejunoh/tap/agent-usage-reserve`. Homebrew가 예전 이름을 새 이름으로 자동으로 옮깁니다.
+   - **설치 명령:** 위의 새 설치 명령을 실행하세요. 예전 설치 명령도 계속 동작합니다. 어느 쪽이든 설치하는 폴더에 있는 예전 `codex-usage-reserve` 프로그램을 지우고, 다른 곳에 사본이 남아 있으면 알려 줍니다.
+2. `agent-usage-reserve enable`을 한 번 실행하세요. Codex 설정은 그대로 두고, Claude도 쓰고 있다면 `Also enable for Claude? [Y/n]`라고 묻습니다.
+
+기존 Codex 설정은 그동안에도 계속 동작합니다.
+
+## 동작 방식과 바뀌는 것
+
+에이전트마다 지침 파일 하나에 표시된 구역 하나만 추가하고, 다른 내용은 건드리지 않습니다.
+
+- **Claude:** Claude 폴더(`~/.claude`, 또는 `CLAUDE_CONFIG_DIR`을 설정했다면 그 경로)의 `CLAUDE.md`
+- **Codex:** Codex 폴더(`~/.codex`, 또는 `CODEX_HOME`을 설정했다면 그 경로)의 `AGENTS.md`. 내용이 있는 `AGENTS.override.md`가 있으면 Codex가 그 파일을 먼저 읽으므로 그 파일을 씁니다.
+
+바꾸기 전마다 같은 폴더에 원본 파일의 비공개 백업을 저장합니다. `disable`은 자기 구역만 지우고 나머지 내용은 원래 그대로 둡니다.
+
+정책 세부 사항:
+
+- 예약 작업 실행은 예외입니다. 일반 수동 작업은 남겨 둘 양에서 멈춥니다.
+- "계속"은 지정한 작업(지정하지 않으면 현재 작업)에만 적용됩니다. 그 작업에 더 낮은 임시 기준을 줄 수도 있습니다. 예: "3%까지 계속해"
+- 서브에이전트는 확인을 건너뛰고, 메인 세션이 처리합니다.
+- 사용량을 읽을 수 없으면 추측하지 않고 그렇다고 알립니다.
+
+## 고급
+
+### 옵션
 
 ```text
 agent-usage-reserve enable  [--threshold 10] [--only claude|codex|all] [--codex-home PATH] [--claude-home PATH]
@@ -68,21 +138,28 @@ agent-usage-reserve disable [--only claude|codex|all] [--codex-home PATH] [--cla
 agent-usage-reserve --version
 ```
 
-기준은 1–99 사이의 정수 퍼센트이며 에이전트마다 따로 저장됩니다. `enable`을 기준값 없이 반복하면 각 에이전트의 현재 기준을 유지합니다. `--only` 없이 `set`과 `disable`을 실행하면 활성화된 모든 에이전트에 적용되며, `set`은 활성화된 정책을 변경합니다. `status`는 감지된 모든 에이전트의 관리 정책과 대상 파일을 보여주며 계정 사용량이나 모델 동작을 확인하지 않습니다.
+- `--only`는 묻지 않고 에이전트를 고릅니다. `--codex-home` / `--claude-home`은 다른 폴더를 가리키며, 그 에이전트를 고른 것으로도 칩니다.
+- 에이전트 폴더가 있으면 그 에이전트를 찾은 것으로 봅니다. 명시적으로 고른 에이전트의 폴더가 없으면 `enable`이 만듭니다.
+- `enable`을 다시 실행하면 이미 켜진 에이전트와 그 기준을 유지합니다. `--threshold`를 주면 기준을 바꿉니다.
+- `--only` 없이 `set`과 `disable`을 실행하면 켜진 모든 에이전트에 적용됩니다.
+- 선택이 필요한데 물어볼 터미널이 없거나, 에이전트를 하나도 찾지 못하면 `enable`은 아무것도 바꾸지 않고 종료 코드 3으로 끝납니다.
+- 파일을 바꾸기 전에 작업 중 다른 무언가가 그 파일을 바꿨는지 확인합니다. 외부 편집 대부분을 잡아내지만, 동시에 일어나는 모든 쓰기를 잡아내지는 못합니다.
 
-도구는 표시된 정책 블록만 변경합니다. Codex는 Codex 홈의 전역 `AGENTS.override.md` 또는 `AGENTS.md` 중 유효한 파일이고, Claude는 Claude 홈의 `CLAUDE.md`입니다. 변경 전에 원본을 해당 에이전트 홈 디렉터리의 비공개 백업 파일로 저장합니다. `disable`은 다른 텍스트를 보존하면서 관리 블록을 제거합니다. 파일을 바꾸기 전에 작업 중 대상 파일이 변경됐는지 확인해 많은 외부 편집을 감지하지만, 별도 편집기를 직렬화하거나 모든 동시 쓰기를 반드시 감지하지는 못합니다. 정책 비활성화와 실행 파일 삭제는 별도 작업입니다. `disable` 후 바이너리를 삭제하거나 `brew uninstall taejunoh/tap/agent-usage-reserve`를 실행하세요.
+### 백업 복원
 
-### 백업 복구
+구역을 지우려면 `agent-usage-reserve disable`을 쓰세요. 파일 전체를 예전 상태로 되돌려야 할 때만 백업을 복원하세요.
 
-관리 블록 제거는 먼저 `agent-usage-reserve disable`을 사용하세요. 백업 파일 이름은 `.agent-usage-reserve-backup-*`이며 각 에이전트의 홈 디렉터리(Codex 홈, Claude 홈)에 있습니다. macOS/Linux에서 확인하려면:
+백업 파일 이름은 `.agent-usage-reserve-backup-*`이고 각 에이전트 폴더에 남습니다. 이름이 바뀌기 전에 만든 백업은 `.codex-usage-reserve-backup-*`이며 그대로 보존됩니다.
+
+전체 복원은 파일 전체를 바꾸므로, 그 백업 이후에 고친 내용은 사라집니다. 백업은 그 백업이 들어 있는 폴더의 파일에만 복원하세요. Codex는 `status`에 나온 파일(`AGENTS.md` 또는 `AGENTS.override.md`)을 대상으로 합니다.
+
+Mac/Linux:
 
 ```sh
 codex_home=${CODEX_HOME:-"$HOME/.codex"}
 claude_home=${CLAUDE_CONFIG_DIR:-"$HOME/.claude"}
 find "$codex_home" "$claude_home" -type f -name '.agent-usage-reserve-backup-*' -print
 ```
-
-선택한 백업과 현재 대상 파일을 먼저 살펴보세요. 전체 파일을 복원하면 백업 이후의 편집 내용이 사라질 수 있습니다. 의도적으로 전체 복원하기 전 현재 대상 파일도 복사해 두세요. 백업은 그것이 들어 있는 홈의 에이전트 파일에만 복원해야 합니다. Codex는 `status`가 출력한 실제 활성 파일(`AGENTS.md` 또는 `AGENTS.override.md`)을, Claude는 `CLAUDE.md`를 대상으로 선택합니다.
 
 ```sh
 backup='/full/path/to/.agent-usage-reserve-backup-...'
@@ -93,7 +170,7 @@ cp -p "$target" "$target.before-restore"
 cp -p "$backup" "$target" # 전체 파일 복원을 의도한 경우에만 실행
 ```
 
-Windows PowerShell에서 백업을 확인하려면:
+Windows PowerShell:
 
 ```powershell
 $codexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $HOME '.codex' }
@@ -111,34 +188,11 @@ Copy-Item -LiteralPath $target -Destination "$target.before-restore"
 Copy-Item -LiteralPath $backup -Destination $target -Force # 전체 파일 복원을 의도한 경우에만 실행
 ```
 
-나중에 추가한 내용을 보존하려면 필요한 부분만 골라 직접 반영하세요. 이름 변경 이전의 백업은 `.codex-usage-reserve-backup-*`이며 도구는 이 파일을 그대로 둡니다. 같은 절차를 해당 이름으로 적용하면 됩니다.
-
-## 적용 범위와 제한
-
-정책은 일반 작업 시작 전과 주요 단계 사이에 사용할 수 있는 계정 사용량 제한을 확인하도록 에이전트에 안내합니다. 실제 예약 작업 실행은 예외입니다. 명시적인 계속 요청은 지정한 작업에만 적용하며, 작업을 지정하지 않으면 현재 작업에만 적용됩니다. 사용자가 임시 기준을 지정하면 그 값을 우선합니다. 서브에이전트는 이 확인을 건너뛰며, 메인 세션이 처리합니다.
-
-이는 행동 지침이며 계정 사용량을 강제로 제한하지 않습니다. 현재 환경에서 제공되는 사용량 데이터와 도구에만 의존하므로 모든 실행에서 사용할 수 있다고 보장하지 않습니다. 데이터가 없으면 추측하지 않고 알립니다. 사용자의 모델 선택·위임 정책은 포함하지 않습니다.
-
-- **Codex:** Codex 데스크톱이나 작업 환경이 계정 사용량 제한을 제공하는 곳에서 동작하며, 모든 CLI 또는 예약 실행에서 사용할 수 있다고 보장하지 않습니다.
-- **Claude Code:** 사용량 도구를 제공하는 Claude 데스크톱 앱의 Code 탭에서 동작합니다. 터미널의 `claude` CLI에는 사용량 도구가 없으므로, 그곳에서는 정책이 사용량을 확인할 수 없다고 알리는 데 그칩니다.
-
-## 기존 codex-usage-reserve 사용자
-
-이 도구는 `codex-usage-reserve`에서 이름이 바뀌었으며 이제 Codex와 Claude Code를 함께 관리합니다.
-
-- **Homebrew:** `brew update` 후 `brew upgrade taejunoh/tap/agent-usage-reserve`를 실행하세요. tap이 이전 formula 이름을 새 이름으로 연결하므로 업그레이드하면 자동으로 이전됩니다.
-- **직접 설치기:** 설치기를 다시 실행하세요. 설치 디렉터리의 이전 `codex-usage-reserve` 실행 파일을 삭제합니다(Windows에서는 이전 기본 디렉터리에서도 삭제하며, 그 디렉터리를 사용자 `PATH`에서 제거하라고 안내합니다). 이전 실행 파일은 새 정책 표시를 인식하지 못하기 때문입니다.
-- **기존 정책**은 계속 동작합니다. 다음에 `enable` 또는 `set`을 실행할 때 기준을 유지한 채 새 표시로 변환됩니다.
-- **업그레이드한 뒤 `agent-usage-reserve enable`을 한 번 실행하세요**(Homebrew 사용 여부와 관계없이). `status`에는 이미 Codex가 활성화된 것으로 보이지만, `enable`을 실행하면 Claude에도 적용할지 묻고("Also enable for Claude? [Y/n]") 이전 표시가 새 표시로 바뀝니다.
-- 이전 `.codex-usage-reserve-backup-*` 파일은 그대로 보존됩니다.
-
-저장소 이름이 바뀐 뒤에도 GitHub 리디렉션 덕분에 기존 한 줄 설치 명령은 계속 동작합니다.
+나중에 고친 내용을 지키려면 파일 전체 대신 되돌리고 싶은 부분만 옮기세요.
 
 ## 개발자용
 
-### 저장소에서 빌드하고 활성화
-
-소스 빌드에는 Go 1.23 이상이 필요합니다.
+출시된 프로그램에는 Go, Node, Python, API 키가 필요 없습니다. 소스에서 빌드하려면 Go 1.23 이상이 필요합니다.
 
 ```sh
 mkdir -p "$HOME/.local/bin"
@@ -146,17 +200,17 @@ go build -o "$HOME/.local/bin/agent-usage-reserve" ./cmd/agent-usage-reserve
 "$HOME/.local/bin/agent-usage-reserve" enable
 ```
 
-기본 기준은 잔여량 10%입니다. 명령은 에이전트별로 수정한 지침 파일 경로를 출력합니다. `$HOME/.local/bin`이 `PATH`에 없다면 셸 설정에 직접 추가하세요.
+`$HOME/.local/bin`이 `PATH`에 없다면 셸 설정에 직접 추가하세요.
 
-릴리스 준비에는 `scripts/build-release.sh 0.2.0`을 사용합니다. 6개 플랫폼 아카이브와 실제 SHA-256 체크섬을 `dist/`에 만들며, 태그 릴리스 GitHub Actions 워크플로가 이를 게시합니다.
+릴리스를 준비하려면 `scripts/build-release.sh 0.2.0`으로 6개 플랫폼 아카이브와 SHA-256 항목을 `dist/`에 만듭니다. `v*` 태그를 푸시하면 릴리스 워크플로가 이를 게시합니다. 설치 명령은 `main`과 최신 릴리스를 함께 읽기 때문에, 커밋이 이미 `main`에 있을 때만 릴리스를 Latest로 지정합니다.
 
-별도 tap 체크아웃에서 릴리스 체크섬 manifest로 Homebrew formula를 생성하려면 다음을 실행합니다. `--renames`는 이전 formula 이름을 새 이름으로 연결하는 `formula_renames.json`도 함께 만듭니다.
+Homebrew formula는 tap 저장소를 따로 체크아웃한 곳에서 릴리스 체크섬으로 생성합니다. `--renames`는 예전 formula 이름을 새 이름으로 연결하는 `formula_renames.json`도 함께 만듭니다.
 
 ```sh
 python3 scripts/generate-formula.py 0.2.0 dist/checksums.txt ../homebrew-tap/Formula/agent-usage-reserve.rb --renames ../homebrew-tap/formula_renames.json
 ```
 
-생성기는 6개 릴리스 아카이브의 실제 체크섬을 모두 요구하고 macOS/Linux용 실제 URL과 해시를 씁니다. 생성된 formula는 별도 tap 저장소에서 검토한 뒤 게시하세요.
+생성기는 6개 아카이브의 실제 체크섬을 모두 요구합니다. 생성된 formula는 tap 저장소에서 검토한 뒤 게시하세요.
 
 데모 GIF와 트랜스크립트를 다시 만들려면 바이너리를 빌드한 뒤 스크립트를 실행합니다(Pillow가 있는 Python과 고정폭 글꼴이 필요합니다).
 
