@@ -27,10 +27,10 @@ All mutation tests used disposable homes. The user's actual `~/.codex` and `~/.c
 ### Publication order (pending)
 
 1. Rename the GitHub repository to `taejunoh/agent-usage-reserve`. Done 2026-10-29; the old web, raw installer, API, release asset and git URLs redirect, and the 0.1.0 one-line installer still installs and enables through the old URL.
-2. Push the branch and the tag `v0.2.0` without updating `main`.
+2. Push the branch and the tag `v0.2.0` without updating `main`. The release workflow marks a release Latest only when its commit is already on `main`, so `v0.2.0` publishes without Latest and `releases/latest` stays `v0.1.0` for the old installers.
 3. Let the release workflow publish, then verify the six archives and `checksums.txt`.
 4. In the tap, add the `agent-usage-reserve` formula and `formula_renames.json` and remove the old formula, then try `brew upgrade` against it.
-5. Only then fast-forward `main`: the one-line installers read `main` and `releases/latest`.
+5. Only then fast-forward `main` and immediately run `gh release edit v0.2.0 --latest`: the one-line installers read `main` and `releases/latest`, so the two change together.
 
 Before announcing, check by hand that the Windows prompt appears under `irm | iex`.
 

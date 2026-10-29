@@ -37,4 +37,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: gh release create $GITHUB_REF_NAME dist/* --verify-tag --generate-notes
+        # The one-line installers read main and releases/latest together, so a
+        # release is marked Latest only once its commit is on main.
+        run: |
+          status=$(gh api "repos/$GH_REPO/compare/main...$GITHUB_SHA" --jq .status)
+          case "$status" in
+            identical|behind) latest=true ;;
+            *) latest=false ;;
+          esac
+          gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes --latest="$latest"
