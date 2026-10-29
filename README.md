@@ -2,6 +2,12 @@
 
 `codex-usage-reserve` manages a small usage-reserve policy in your global Codex instructions. It is an unofficial local utility. It has no service, telemetry, API-key access, credential scraping, or background polling.
 
+## Demo
+
+![Actual CLI output in an isolated demo profile](docs/assets/demo.gif)
+
+Actual CLI output · isolated demo profile. The demo configures agent guidance; it is not an enforced usage cap. Temporary paths are shortened for readability.
+
 ## Quick start
 
 Install with Homebrew on macOS or Linux:

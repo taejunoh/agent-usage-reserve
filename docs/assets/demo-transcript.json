@@ -1,0 +1,30 @@
+{
+  "source": "captured from installed codex-usage-reserve CLI",
+  "steps": [
+    {
+      "command": "codex-usage-reserve enable --codex-home ./demo",
+      "output": "Enabled: 10% remaining threshold\nTarget: ./demo/AGENTS.md",
+      "returncode": 0
+    },
+    {
+      "command": "codex-usage-reserve set 15 --codex-home ./demo",
+      "output": "Enabled: 15% remaining threshold\nTarget: ./demo/AGENTS.md",
+      "returncode": 0
+    },
+    {
+      "command": "codex-usage-reserve status --codex-home ./demo",
+      "output": "Enabled: 15% remaining threshold\nTarget: ./demo/AGENTS.md\nInstalled policy only; account usage and compliance are not checked.",
+      "returncode": 0
+    },
+    {
+      "command": "codex-usage-reserve disable --codex-home ./demo",
+      "output": "Disabled: ./demo/AGENTS.md",
+      "returncode": 0
+    },
+    {
+      "command": "cat ./demo/AGENTS.md",
+      "output": "# Demo Codex instructions\n\nPrefer concise answers and include a short summary.",
+      "returncode": 0
+    }
+  ]
+}
