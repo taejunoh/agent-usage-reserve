@@ -89,7 +89,7 @@ The remaining paragraphs match Codex: at or below threshold checkpoint and stop 
 - Legacy backups are left untouched.
 - The old executable must not linger, because it cannot see the new marker and would add a second block:
   - Homebrew tap gains `formula_renames.json` mapping `codex-usage-reserve` to `agent-usage-reserve`, so `brew upgrade` migrates; the old formula file is removed.
-  - Direct installers remove only a `codex-usage-reserve` executable in the same install directory they write to, and print that they did.
+  - Direct installers remove only a `codex-usage-reserve` executable in the same install directory they write to, and print that they did. On Windows, whose default install directory changed name, the installer also removes it from the previous default directory `%LOCALAPPDATA%\Programs\codex-usage-reserve\bin` when no custom install directory is set, and suggests removing that directory from PATH.
 - The GitHub repository is renamed to `taejunoh/agent-usage-reserve`; GitHub redirects old web, git, raw and release URLs, so the old one-line install commands keep working.
 
 ## Distribution

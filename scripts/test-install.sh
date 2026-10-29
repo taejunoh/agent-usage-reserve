@@ -128,6 +128,21 @@ assert test ! -e "$case_dir/install/codex-usage-reserve"
 assert test ! -e "$case_dir/home/.codex"
 assert test ! -e "$case_dir/home/.claude"
 
+# Both agents found through their own variables and no terminal to prompt on: the binary must not
+# guess, so the installer reports "not enabled yet" with the --only guidance and writes nothing.
+# With a controlling terminal the binary would prompt, so that path cannot be asserted here.
+new_case bothnotty
+if ( : </dev/tty ) 2>/dev/null; then
+  echo 'SKIP: both-agents-without-terminal case (a controlling terminal is reachable)'
+else
+  CODEX_HOME="$case_dir/codex-home" CLAUDE_CONFIG_DIR="$case_dir/claude-home" \
+    sh "$ROOT/install.sh" </dev/null >"$TMP/bothnotty.out" 2>&1 || { cat "$TMP/bothnotty.out" >&2; echo 'expected exit 0 with both agents and no terminal' >&2; exit 1; }
+  assert grep -q "Installed (policy not enabled yet): $case_dir/install/agent-usage-reserve" "$TMP/bothnotty.out"
+  assert grep -q -e '--only' "$TMP/bothnotty.out"
+  assert test ! -e "$case_dir/codex-home/AGENTS.md"
+  assert test ! -e "$case_dir/claude-home/CLAUDE.md"
+fi
+
 # Any other enable failure (a refused home) is propagated; the binary stays installed.
 new_case refused
 printf 'real\n' > "$case_dir/real-agents.md"
@@ -137,6 +152,7 @@ if AGENT_USAGE_RESERVE_CODEX_HOME="$case_dir/codex-home" sh "$ROOT/install.sh" >
   exit 1
 fi
 assert test -x "$case_dir/install/agent-usage-reserve"
+assert grep -q "Installed $case_dir/install/agent-usage-reserve, but enabling the policy failed" "$TMP/refused.out"
 if grep -q 'Installed and enabled' "$TMP/refused.out"; then echo "unexpected output matched" >&2; exit 1; fi
 if grep -q 'policy not enabled yet' "$TMP/refused.out"; then echo "unexpected output matched" >&2; exit 1; fi
 assert test "$(cat "$case_dir/real-agents.md")" = real

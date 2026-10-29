@@ -58,11 +58,23 @@ try {
     Move-Item -LiteralPath $staged -Destination $target -Force
 
     # The old executable cannot see the new marker and would add a second policy block.
-    $old = Join-Path $installDir 'codex-usage-reserve.exe'
-    $oldItem = Get-Item -LiteralPath $old -Force -ErrorAction SilentlyContinue
-    if ($oldItem -and -not $oldItem.PSIsContainer -and -not $oldItem.LinkType) {
-        Remove-Item -LiteralPath $old -Force
-        Write-Output "Removed old codex-usage-reserve: $old"
+    $removedDirs = @($installDir)
+    $legacyDir = $null
+    if (-not $env:AGENT_USAGE_RESERVE_INSTALL_DIR -and $env:LOCALAPPDATA) {
+        # The default install directory changed name, so the old default one is cleaned too.
+        $legacyDir = Join-Path $env:LOCALAPPDATA 'Programs/codex-usage-reserve/bin'
+        $removedDirs += $legacyDir
+    }
+    foreach ($dir in $removedDirs) {
+        $old = Join-Path $dir 'codex-usage-reserve.exe'
+        $oldItem = Get-Item -LiteralPath $old -Force -ErrorAction SilentlyContinue
+        if ($oldItem -and -not $oldItem.PSIsContainer -and -not $oldItem.LinkType) {
+            Remove-Item -LiteralPath $old -Force
+            Write-Output "Removed old codex-usage-reserve: $old"
+            if ($dir -eq $legacyDir) {
+                Write-Output "You can remove $legacyDir from your user PATH."
+            }
+        }
     }
 
     # The binary reads the agents' own home variables itself; passing them as flags would
@@ -75,13 +87,21 @@ try {
         $enableArgs += @('--claude-home', $env:AGENT_USAGE_RESERVE_CLAUDE_HOME)
     }
     # The console is used directly, so the binary can prompt when both agents are found.
-    & $target @enableArgs
-    $enableExit = $LASTEXITCODE
+    # Windows PowerShell 5.1 turns native stderr into a terminating error under Stop.
+    $previousPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & $target @enableArgs
+        $enableExit = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousPreference
+    }
     if ($enableExit -eq 0) {
         Write-Output "Installed and enabled: $target"
     } elseif ($enableExit -eq 3) {
         Write-Output "Installed (policy not enabled yet): $target"
     } else {
+        [Console]::Error.WriteLine("Installed $target, but enabling the policy failed (see the error above).")
         throw "Policy enable failed with exit code $enableExit"
     }
     $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')

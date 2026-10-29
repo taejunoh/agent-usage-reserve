@@ -95,6 +95,9 @@ fi
 case "$status" in
   0) printf 'Installed and enabled: %s\n' "$target" ;;
   3) printf 'Installed (policy not enabled yet): %s\n' "$target" ;;
-  *) exit "$status" ;;
+  *)
+    printf 'Installed %s, but enabling the policy failed (see the error above).\n' "$target" >&2
+    exit "$status"
+    ;;
 esac
 case ":${PATH-}:" in *":$install_dir:"*) ;; *) printf 'Add this to PATH: export PATH="%s:$PATH"\n' "$install_dir" ;; esac

@@ -22,7 +22,8 @@ $environmentNames = @(
     'CODEX_HOME',
     'CLAUDE_CONFIG_DIR',
     'HOME',
-    'USERPROFILE'
+    'USERPROFILE',
+    'LOCALAPPDATA'
 )
 $oldEnvironment = @{}
 foreach ($name in $environmentNames) {
@@ -56,6 +57,25 @@ $webMock = {
 }.GetNewClosure()
 Set-Item Function:\Invoke-WebRequest -Value $webMock
 
+# Runs the installer, capturing everything it writes. Windows PowerShell 5.1 turns native stderr
+# redirected with 2>&1 into a terminating error under 'Stop', so Continue is used locally;
+# a throw from the installer is still caught and reported as Failed.
+function Invoke-Installer {
+    $lines = [System.Collections.Generic.List[string]]::new()
+    $failed = $false
+    $previousPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & $installer 2>&1 | ForEach-Object { $lines.Add(([string]($_ | Out-String)).TrimEnd()) }
+    } catch {
+        $failed = $true
+        $lines.Add($_.Exception.Message)
+    } finally {
+        $ErrorActionPreference = $previousPreference
+    }
+    return [pscustomobject]@{ Failed = $failed; Output = ($lines -join "`n") }
+}
+
 # Fresh sandbox for one case: fake HOME, install dir and agent homes. Real homes are never touched.
 function New-Case {
     param([string]$Name)
@@ -65,10 +85,12 @@ function New-Case {
         InstallDir = Join-Path $temp "$Name/bin"
         CodexHome = Join-Path $temp "$Name/codex-home"
         ClaudeHome = Join-Path $temp "$Name/claude-home"
+        LocalAppData = Join-Path $temp "$Name/localappdata"
     }
-    New-Item -ItemType Directory -Path $case.Home, $case.InstallDir, $case.CodexHome, $case.ClaudeHome -Force | Out-Null
+    New-Item -ItemType Directory -Path $case.Home, $case.InstallDir, $case.CodexHome, $case.ClaudeHome, $case.LocalAppData -Force | Out-Null
     $env:HOME = $case.Home
     $env:USERPROFILE = $case.Home
+    $env:LOCALAPPDATA = $case.LocalAppData
     $env:AGENT_USAGE_RESERVE_INSTALL_DIR = $case.InstallDir
     Remove-Item Env:AGENT_USAGE_RESERVE_VERSION, Env:AGENT_USAGE_RESERVE_CODEX_HOME, Env:AGENT_USAGE_RESERVE_CLAUDE_HOME, Env:CODEX_HOME, Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue
     $mockCallLog.LatestRequestCount = 0
@@ -109,7 +131,9 @@ try {
     Set-Content -LiteralPath $oldExe -Value 'old executable' -Encoding ascii
     $env:AGENT_USAGE_RESERVE_CODEX_HOME = $case.CodexHome
     $env:AGENT_USAGE_RESERVE_CLAUDE_HOME = $case.ClaudeHome
-    $output = (& $installer 2>&1 | Out-String)
+    $result = Invoke-Installer
+    $output = $result.Output
+    Assert-That (-not $result.Failed) "installer failed: $output"
     Assert-That ($mockCallLog.LatestRequestCount -eq 1) 'latest release tag should be resolved once'
     Assert-That ($mockCallLog.DownloadUrls.Count -eq 2) 'expected archive and checksum downloads'
     foreach ($url in $mockCallLog.DownloadUrls) {
@@ -133,7 +157,8 @@ try {
     & $installed set 15 --codex-home $case.CodexHome --claude-home $case.ClaudeHome
     $mockCallLog.DownloadUrls.Clear()
     $env:AGENT_USAGE_RESERVE_VERSION = $version
-    & $installer
+    $result = Invoke-Installer
+    Assert-That (-not $result.Failed) "explicit version install failed: $($result.Output)"
     Assert-That ($mockCallLog.LatestRequestCount -eq 1) 'explicit version should skip the latest lookup'
     Assert-That ($mockCallLog.DownloadUrls.Count -eq 2) 'explicit version should download exactly two assets'
     foreach ($url in $mockCallLog.DownloadUrls) {
@@ -146,7 +171,9 @@ try {
     $case = New-Case 'noagent'
     $oldExe = Join-Path $case.InstallDir 'codex-usage-reserve.exe'
     Set-Content -LiteralPath $oldExe -Value 'old executable' -Encoding ascii
-    $output = (& $installer 2>&1 | Out-String)
+    $result = Invoke-Installer
+    $output = $result.Output
+    Assert-That (-not $result.Failed) "no-agent run failed: $output"
     Assert-That (Test-Path -LiteralPath (Join-Path $case.InstallDir 'agent-usage-reserve.exe') -PathType Leaf) 'no-agent run did not install the executable'
     Assert-That ($output.Contains('Installed (policy not enabled yet)')) 'no-agent run did not report the policy as not enabled'
     Assert-That ($output.Contains('Codex or Claude was not found')) 'no-agent run did not repeat the guidance'
@@ -157,13 +184,10 @@ try {
     $notADirectory = Join-Path $case.Root 'not-a-directory'
     Set-Content -LiteralPath $notADirectory -Value 'file' -Encoding ascii
     $env:AGENT_USAGE_RESERVE_CODEX_HOME = $notADirectory
-    $enableRejected = $false
-    try {
-        & $installer 2>&1 | Out-Null
-    } catch {
-        $enableRejected = $true
-    }
-    Assert-That $enableRejected 'installer did not fail when enable was refused'
+    $result = Invoke-Installer
+    Assert-That $result.Failed 'installer did not fail when enable was refused'
+    Assert-That (-not $result.Output.Contains('Installed and enabled')) 'refused run claimed the policy was enabled'
+    Assert-That (-not $result.Output.Contains('policy not enabled yet')) 'refused run reported the soft not-enabled outcome'
     Assert-That (Test-Path -LiteralPath (Join-Path $case.InstallDir 'agent-usage-reserve.exe') -PathType Leaf) 'binary should stay installed after a refused enable'
 
     # A bad checksum must preserve the installed and old executables and every instruction file.
@@ -177,19 +201,48 @@ try {
     $env:AGENT_USAGE_RESERVE_CODEX_HOME = $case.CodexHome
     $env:AGENT_USAGE_RESERVE_CLAUDE_HOME = $case.ClaudeHome
     Set-Content -LiteralPath $checksumPath -Value ("{0}  {1}" -f ('0' * 64), $asset) -Encoding ascii
-    $checksumRejected = $false
-    try {
-        & $installer 2>&1 | Out-Null
-    } catch {
-        $checksumRejected = $true
-    }
-    Assert-That $checksumRejected 'bad checksum was not rejected'
+    $result = Invoke-Installer
+    Assert-That $result.Failed 'bad checksum was not rejected'
     Assert-That ((Get-FileHash -LiteralPath $installed -Algorithm SHA256).Hash -eq $installedHash) 'bad checksum overwrote the installed executable'
     Assert-That (Test-Path -LiteralPath $oldExe -PathType Leaf) 'bad checksum removed the old executable'
     Assert-That ((Get-FileHash -LiteralPath $oldExe -Algorithm SHA256).Hash -eq $oldHash) 'bad checksum modified the old executable'
     Assert-That (-not (Test-Path -LiteralPath (Join-Path $case.CodexHome 'AGENTS.md'))) 'bad checksum wrote Codex instructions'
     Assert-That (-not (Test-Path -LiteralPath (Join-Path $case.ClaudeHome 'CLAUDE.md'))) 'bad checksum wrote Claude instructions'
     Set-Content -LiteralPath $checksumPath -Value $goodChecksum -Encoding ascii
+
+    # The default install directory was renamed: with no custom directory the old executable is
+    # also removed from the previous default directory (the directory itself and PATH stay alone).
+    $case = New-Case 'legacy-default'
+    Remove-Item Env:AGENT_USAGE_RESERVE_INSTALL_DIR -ErrorAction SilentlyContinue
+    $legacyDir = Join-Path $case.LocalAppData 'Programs/codex-usage-reserve/bin'
+    New-Item -ItemType Directory -Path $legacyDir -Force | Out-Null
+    $legacyExe = Join-Path $legacyDir 'codex-usage-reserve.exe'
+    Set-Content -LiteralPath $legacyExe -Value 'old executable' -Encoding ascii
+    $env:AGENT_USAGE_RESERVE_CODEX_HOME = $case.CodexHome
+    $env:AGENT_USAGE_RESERVE_CLAUDE_HOME = $case.ClaudeHome
+    $result = Invoke-Installer
+    $output = $result.Output
+    Assert-That (-not $result.Failed) "legacy default run failed: $output"
+    $defaultDir = Join-Path $case.LocalAppData 'Programs/agent-usage-reserve/bin'
+    Assert-That (Test-Path -LiteralPath (Join-Path $defaultDir 'agent-usage-reserve.exe') -PathType Leaf) 'default install did not land in the new default directory'
+    Assert-That (-not (Test-Path -LiteralPath $legacyExe)) 'legacy default executable was not removed'
+    Assert-That (Test-Path -LiteralPath $legacyDir -PathType Container) 'legacy directory must not be deleted'
+    Assert-That ($output.Contains("Removed old codex-usage-reserve: $legacyExe")) 'legacy removal was not reported'
+    Assert-That ($output.Contains("You can remove $legacyDir from your user PATH.")) 'legacy PATH hint was not printed'
+
+    # A custom install directory leaves the previous default directory alone.
+    $case = New-Case 'legacy-custom'
+    $legacyDir = Join-Path $case.LocalAppData 'Programs/codex-usage-reserve/bin'
+    New-Item -ItemType Directory -Path $legacyDir -Force | Out-Null
+    $legacyExe = Join-Path $legacyDir 'codex-usage-reserve.exe'
+    Set-Content -LiteralPath $legacyExe -Value 'old executable' -Encoding ascii
+    $env:AGENT_USAGE_RESERVE_CODEX_HOME = $case.CodexHome
+    $env:AGENT_USAGE_RESERVE_CLAUDE_HOME = $case.ClaudeHome
+    $result = Invoke-Installer
+    $output = $result.Output
+    Assert-That (-not $result.Failed) "custom install dir run failed: $output"
+    Assert-That (Test-Path -LiteralPath $legacyExe -PathType Leaf) 'custom install dir run touched the legacy default executable'
+    Assert-That (-not $output.Contains('Removed old codex-usage-reserve')) 'custom install dir run reported a removal'
     Write-Output 'Windows installer integration checks passed'
 } finally {
     if ($null -eq $originalRestFunction) {
