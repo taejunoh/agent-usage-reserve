@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a small terminal-style GIF from real codex-usage-reserve output."""
+"""Generate a small terminal-style GIF from real agent-usage-reserve output."""
 
 from __future__ import annotations
 
@@ -33,19 +33,23 @@ def font(size: int, bold: bool = False):
 
 
 FONT = font(21)
+OUT_FONT = font(19)  # keeps the longest status line on one row
 SMALL = font(16)
 TITLE = font(20)
 
 
-def run(binary: str, args: list[str], cwd: Path) -> dict:
-    cmd = [binary, *args, "--codex-home", "./demo"]
-    result = subprocess.run(cmd, cwd=cwd, text=True, capture_output=True, check=False)
+def run(binary: str, args: list[str], home: Path) -> dict:
+    """Run the CLI with HOME set to a demo home that holds both agents."""
+    cmd = [binary, *args]
+    env = {k: v for k, v in os.environ.items() if k not in ("CODEX_HOME", "CLAUDE_CONFIG_DIR")}
+    env["HOME"] = str(home)
+    result = subprocess.run(cmd, cwd=home, env=env, text=True, capture_output=True, check=False)
     if result.returncode != 0:
         raise RuntimeError(f"Command failed ({result.returncode}): {' '.join(cmd)}\n{result.stderr}")
     output = (result.stdout + result.stderr).rstrip("\n")
-    real_cwd = Path(os.path.realpath(cwd))
-    output = output.replace(str(real_cwd / "demo"), "./demo").replace(str(real_cwd), ".")
-    return {"command": " ".join([Path(binary).name, *args, "--codex-home", "./demo"]), "output": output, "returncode": result.returncode}
+    for variant in sorted({str(home), os.path.realpath(home)}, key=len, reverse=True):
+        output = output.replace(variant, "~")
+    return {"command": " ".join([Path(binary).name, *args]), "output": output, "returncode": result.returncode}
 
 
 def measure_wrap(text: str, fnt, max_width: int) -> list[str]:
@@ -65,7 +69,7 @@ def measure_wrap(text: str, fnt, max_width: int) -> list[str]:
     return lines or [""]
 
 
-def frame(step: int, title: str, command: str, output: str, reveal: int, phase: str) -> Image.Image:
+def frame(step: int, total: int, title: str, command: str, output: str, reveal: int, phase: str) -> Image.Image:
     im = Image.new("RGB", (WIDTH, HEIGHT), BG)
     d = ImageDraw.Draw(im)
     d.rounded_rectangle((26, 24, WIDTH - 26, HEIGHT - 24), radius=18, fill=PANEL, outline="#263541", width=2)
@@ -73,10 +77,10 @@ def frame(step: int, title: str, command: str, output: str, reveal: int, phase: 
     d.rectangle((26, 58, WIDTH - 26, 80), fill=PANEL2)
     for x, color in [(52, "#ff6b6b"), (76, "#ffd166"), (100, "#06d6a0")]:
         d.ellipse((x, 46, x + 12, 58), fill=color)
-    d.text((130, 39), "Codex Usage Reserve  /  real CLI session", font=SMALL, fill=MUTED)
+    d.text((130, 39), "Agent Usage Reserve  /  real CLI session", font=SMALL, fill=MUTED)
     d.text((52, 99), "ACTUAL CLI OUTPUT · ISOLATED DEMO PROFILE", font=SMALL, fill=TEAL)
     d.text((52, 128), title, font=TITLE, fill=TEXT)
-    d.text((1010, 101), f"{step}/5", font=SMALL, fill=MUTED)
+    d.text((1010, 101), f"{step}/{total}", font=SMALL, fill=MUTED)
     d.line((52, 163, WIDTH - 52, 163), fill="#263541", width=1)
 
     left, right = 56, WIDTH - 56
@@ -90,7 +94,7 @@ def frame(step: int, title: str, command: str, output: str, reveal: int, phase: 
     visible = output[:reveal]
     out_lines: list[str] = []
     for raw in visible.splitlines():
-        out_lines.extend(measure_wrap(raw, FONT, right - left))
+        out_lines.extend(measure_wrap(raw, OUT_FONT, right - left))
     maxlines = max(1, (HEIGHT - 300) // 29)
     if len(out_lines) > maxlines:
         out_lines = ["…", *out_lines[-(maxlines - 1):]]
@@ -98,7 +102,7 @@ def frame(step: int, title: str, command: str, output: str, reveal: int, phase: 
         color = GREEN if line.startswith("✓") or "enabled" in line.lower() or "enabled" == line.strip().lower() else TEXT
         if "15%" in line or "10%" in line:
             color = AMBER
-        d.text((left, y), line, font=FONT, fill=color)
+        d.text((left, y), line, font=OUT_FONT, fill=color)
         y += 29
     if phase == "typing":
         cursor_y = min(y, HEIGHT - 98)
@@ -111,36 +115,35 @@ def frame(step: int, title: str, command: str, output: str, reveal: int, phase: 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--binary", default=os.environ.get("CODEX_USAGE_RESERVE_DEMO_BINARY") or shutil.which("codex-usage-reserve"), help="CLI binary path (or CODEX_USAGE_RESERVE_DEMO_BINARY)")
+    parser.add_argument("--binary", default=os.environ.get("AGENT_USAGE_RESERVE_DEMO_BINARY") or shutil.which("agent-usage-reserve"), help="CLI binary path (or AGENT_USAGE_RESERVE_DEMO_BINARY)")
     parser.add_argument("--preview-dir", type=Path, help="optionally save full-size review PNGs and a contact sheet here")
     args = parser.parse_args()
     if not args.binary:
-        parser.error("codex-usage-reserve not found; pass --binary or set CODEX_USAGE_RESERVE_DEMO_BINARY")
+        parser.error("agent-usage-reserve not found; pass --binary or set AGENT_USAGE_RESERVE_DEMO_BINARY")
 
-    original = b"# Demo Codex instructions\n\nPrefer concise answers and include a short summary.\n"
-    with tempfile.TemporaryDirectory(prefix="codex-usage-reserve-demo-") as tmp:
-        cwd = Path(tmp)
-        demo = cwd / "demo"
-        demo.mkdir()
-        (demo / "AGENTS.md").write_bytes(original)
+    originals = {
+        ".codex/AGENTS.md": b"# Demo Codex instructions\n\nPrefer concise answers and include a short summary.\n",
+        ".claude/CLAUDE.md": b"# Demo Claude instructions\n\nPrefer concise answers and include a short summary.\n",
+    }
+    with tempfile.TemporaryDirectory(prefix="agent-usage-reserve-demo-") as tmp:
+        home = Path(tmp)
+        for name, content in originals.items():
+            (home / name).parent.mkdir()
+            (home / name).write_bytes(content)
         records = [
-            run(args.binary, ["enable"], cwd),
-            run(args.binary, ["set", "15"], cwd),
-            run(args.binary, ["status"], cwd),
-            run(args.binary, ["disable"], cwd),
+            run(args.binary, ["enable", "--only", "all"], home),
+            run(args.binary, ["status"], home),
+            run(args.binary, ["disable"], home),
         ]
-        target = demo / "AGENTS.md"
-        if target.read_bytes() != original:
-            raise RuntimeError("Original instruction file was not restored byte-for-byte after disable")
-        cat = subprocess.run(["cat", "./demo/AGENTS.md"], cwd=cwd, text=True, capture_output=True, check=False)
-        if cat.returncode != 0 or cat.stdout.encode() != original:
-            raise RuntimeError("Original instruction file was not restored byte-for-byte after disable")
-        records.append({"command": "cat ./demo/AGENTS.md", "output": cat.stdout.rstrip("\n"), "returncode": cat.returncode})
+        for name, content in originals.items():
+            if (home / name).read_bytes() != content:
+                raise RuntimeError(f"{name} was not restored byte-for-byte after disable")
 
     TRANSCRIPT.parent.mkdir(parents=True, exist_ok=True)
-    TRANSCRIPT.write_text(json.dumps({"source": "captured from installed codex-usage-reserve CLI", "steps": records}, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    TRANSCRIPT.write_text(json.dumps({"source": "captured from the agent-usage-reserve CLI in a temporary home with .codex and .claude", "steps": records}, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
-    titles = ["Enable the default 10% reserve", "Change the threshold to 15%", "Review the configured policy", "Disable the policy", "Confirm original instructions remain"]
+    titles = ["Enable the reserve for Codex and Claude", "Review the configured policy", "Disable it; your own text remains"]
+    total = len(records)
     first = records[0]
     scenes = [(1, titles[0], first["command"], first["output"], len(first["output"]), "hold", 3000)]
     for i, (record, title) in enumerate(zip(records[1:], titles[1:]), start=2):
@@ -154,12 +157,12 @@ def main() -> None:
         for n in range(1, len(output.splitlines()) + 1):
             reveal = len("\n".join(output.splitlines()[:n]))
             scenes.append((i, title, command, output, reveal, "output", 120))
-        scenes.append((i, title, command, output, len(output), "hold", 2500 if i == 5 else 2350))
+        scenes.append((i, title, command, output, len(output), "hold", 2800 if i == total else 2800))
 
     images: list[Image.Image] = []
     durations: list[int] = []
     for step, title, command, output, reveal, phase, duration in scenes:
-        images.append(frame(step, title, command, output, reveal, phase))
+        images.append(frame(step, total, title, command, output, reveal, phase))
         durations.append(duration)
     if args.preview_dir:
         picks = [0, len(images) // 5, 2 * len(images) // 5, 3 * len(images) // 5, 4 * len(images) // 5, len(images) - 1]
@@ -171,7 +174,7 @@ def main() -> None:
             sheet.paste(thumb, ((j % 2) * thumb_size[0], (j // 2) * thumb_size[1]))
         sheet.save(args.preview_dir / "contact-sheet.png")
         images[-1].save(args.preview_dir / "final.png")
-        status_idx = max(idx for idx, scene in enumerate(scenes) if scene[0] == 3 and scene[5] == "hold")
+        status_idx = max(idx for idx, scene in enumerate(scenes) if scene[0] == 2 and scene[5] == "hold")
         images[status_idx].save(args.preview_dir / "status.png")
 
     # Quantize to a shared 96-color palette for a small, predictable GIF.

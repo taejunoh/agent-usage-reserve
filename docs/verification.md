@@ -1,4 +1,30 @@
-# Initial release verification
+# Verification
+
+## 0.2.0: agent-usage-reserve (Codex and Claude Code)
+
+Date: 2026-10-29. Version: 0.2.0. Local platform: macOS arm64. Local build toolchain: Go 1.27.3 (`go.mod` stays at Go 1.23); Go dependencies: standard library only. This entry covers local implementation and verification only. The repository rename, push, tag, release and tap publication have not been done.
+
+### Passed locally
+
+- `gofmt -l .` clean; `go vet ./...` and `GOOS=windows go vet ./...` clean; `go test -count=1 -race ./...` passed (per-task runs also covered `-count=3 -shuffle=on`; see `.superpowers/sdd/task-1-report.md` and `task-2-report.md`).
+- Engine and CLI tests, retargeted from 0.1.0: byte-exact preservation (CRLF, missing final newline, recorded padding), private backups, permission preservation, symlink refusal, external-edit and lock handling, malformed and duplicate markers.
+- New tests: full Claude lifecycle; agent detection (none, one, both); selection and prompt input (empty, 1-3, invalid then valid, three invalid aborts); non-interactive refusal without mutation; `--only`; cross-agent markers refused; legacy `codex-usage-reserve` marker status, migration on `enable`/`set`, removal on `disable`, and legacy plus new block refused.
+- Codex policy text compared against the 0.1.0 output: identical apart from the marker lines. Claude policy text compared against the design spec.
+- Cross-binary migration: a policy enabled by the 0.1.0 binary was reported by the new binary, rewritten to the new marker on `enable`/`set`, and removed by `disable` with the original bytes restored; the legacy backup was left untouched (task 1 report).
+- Shell installer integration (`sh scripts/test-install.sh`), re-run for this entry: old-executable removal and report, repeat install, no-agent and refused-home exit paths, bad checksum leaving everything unchanged, version mismatch. `sh -n install.sh` clean.
+- `scripts/build-release.sh 0.2.0` produced six `agent-usage-reserve_0.2.0_*` archives (macOS, Linux, Windows; amd64, arm64) and `checksums.txt`.
+- `scripts/generate-formula.py 0.2.0 ... --renames ...` generated the formula and `formula_renames.json` from that manifest; `ruby -c` accepted the formula.
+- Demo regenerated from the real binary in a temporary home with `.codex` and `.claude` (`enable --only all`, `status`, `disable`); both instruction files were restored byte-for-byte, and the transcript contains no real home paths.
+- Every command in the READMEs was checked against `agent-usage-reserve --help`; `--only`, `set`, `status` and the non-interactive guidance were run against temporary homes.
+
+### Not run locally
+
+- `install.ps1` and `scripts/test-install.ps1` were not executed (no PowerShell here); the Windows job in CI runs them. Windows runtime behavior is not claimed as locally tested.
+- Not exercised: the Homebrew install and upgrade path, the public installers, the repository rename and its redirects, the release workflow, and the Claude desktop app's Code tab with a live usage tool. Reserve behavior depends on that tool being exposed to the agent.
+
+All mutation tests used disposable homes. The user's actual `~/.codex` and `~/.claude` were not modified.
+
+## 0.1.0: initial release (codex-usage-reserve)
 
 Date: 2026-10-28. Version: 0.1.0. Local platform: macOS arm64. Local build toolchain: Go 1.27.3; published releases and CI use Go 1.23; Go dependencies: standard library only.
 
