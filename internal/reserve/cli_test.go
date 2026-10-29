@@ -815,12 +815,38 @@ func TestEnableAndSetNameFailingAgent(t *testing.T) {
 		assertTree(t, h.claude, claudeBefore)
 		assertTree(t, h.codex, codexBefore)
 	}
+	// The hint keeps an explicit threshold.
+	_, err := cli(t, "", false, "enable", "--threshold", "20")
+	if want := "Claude: refusing symlink instruction target: " + path + "; to leave Claude alone, run: agent-usage-reserve enable --threshold 20 --only codex"; err == nil || err.Error() != want {
+		t.Fatalf("%v, want %s", err, want)
+	}
+	// A selection keeps the error unwrapped.
+	_, err = cli(t, "", false, "set", "15", "--only", "claude")
+	if want := "refusing symlink instruction target: " + path; err == nil || err.Error() != want {
+		t.Fatalf("%v, want %s", err, want)
+	}
 	// With no other agent found there is no hint.
 	if err := os.RemoveAll(h.codex); err != nil {
 		t.Fatal(err)
 	}
-	_, err := cli(t, "", false, "enable")
+	_, err = cli(t, "", false, "enable")
 	if err == nil || err.Error() != "Claude: refusing symlink instruction target: "+path {
 		t.Fatalf("%v", err)
+	}
+}
+
+func TestSetOffersHintOnlyWhenOtherAgentEnabled(t *testing.T) {
+	h := newHomes(t, true, true)
+	target := filepath.Join(h.root, "real-claude.md")
+	write(t, target, []byte("private\n"))
+	if err := os.Symlink(target, filepath.Join(h.claude, "CLAUDE.md")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	write(t, filepath.Join(h.codex, "AGENTS.md"), []byte(codexUserText))
+	// Codex has no policy, so set has nothing to leave alone.
+	_, err := cli(t, "", false, "set", "15")
+	want := "Claude: refusing symlink instruction target: " + filepath.Join(resolved(t, h.claude), "CLAUDE.md")
+	if err == nil || err.Error() != want {
+		t.Fatalf("%v, want %s", err, want)
 	}
 }

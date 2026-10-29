@@ -184,7 +184,7 @@ func readTargets(a agent, home string) ([]snapshot, int, *block, error) {
 	for i, s := range targets {
 		b, err := findBlock(s.data, a)
 		if errors.Is(err, errBothGenerations) {
-			return targets, active, nil, fmt.Errorf("found both an old codex-usage-reserve block and an agent-usage-reserve block in %s; an old codex-usage-reserve executable is probably still installed — remove it, then run agent-usage-reserve disable and enable again", s.path)
+			return targets, active, nil, fmt.Errorf("found both an old codex-usage-reserve block and an agent-usage-reserve block in %s; run \"codex-usage-reserve disable\" to remove the old block, then uninstall codex-usage-reserve", s.path)
 		}
 		if err != nil {
 			return targets, active, nil, fmt.Errorf("%s: %w", s.path, err)

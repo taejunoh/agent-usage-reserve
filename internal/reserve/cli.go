@@ -283,6 +283,9 @@ func (inv invocation) run(in io.Reader, out io.Writer, interactive bool) error {
 		for _, t := range targets {
 			res, err := inspect(t.agent, t.home)
 			if err != nil {
+				if inv.selected != nil {
+					return err
+				}
 				return inv.agentError(t, targets, err)
 			}
 			if res.enabled {
@@ -314,7 +317,8 @@ func (inv invocation) failFast(found []target) func(target, error) error {
 }
 
 // agentError names the failing agent and, when exactly one other agent was
-// found, says how to run the command for that one alone.
+// found (and, for set, has the policy), says how to run the command for that
+// one alone.
 func (inv invocation) agentError(failed target, found []target, err error) error {
 	var others []target
 	for _, t := range found {
@@ -326,7 +330,15 @@ func (inv invocation) agentError(failed target, found []target, err error) error
 		return fmt.Errorf("%s: %w", failed.agent.label, err)
 	}
 	command := "enable"
+	if inv.threshold != 0 {
+		command += fmt.Sprintf(" --threshold %d", inv.threshold)
+	}
 	if inv.command == "set" {
+		// Setting only changes agents that have the policy, so there is
+		// nothing to leave alone unless the other one has it.
+		if res, ierr := inspect(others[0].agent, others[0].home); ierr != nil || !res.enabled {
+			return fmt.Errorf("%s: %w", failed.agent.label, err)
+		}
 		command = fmt.Sprintf("set %d", inv.threshold)
 	}
 	return fmt.Errorf("%s: %w; to leave %s alone, run: agent-usage-reserve %s --only %s", failed.agent.label, err, failed.agent.label, command, others[0].agent.name)

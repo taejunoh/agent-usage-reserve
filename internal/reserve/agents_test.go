@@ -401,7 +401,7 @@ func TestLegacyAndNewBlocksRefusedAsDuplicate(t *testing.T) {
 			assertRefused(t, codexAgent, home, path, content)
 			if strings.HasPrefix(name, "legacy-then") || strings.HasPrefix(name, "new-then") {
 				_, err := inspect(codexAgent, home)
-				want := "found both an old codex-usage-reserve block and an agent-usage-reserve block in " + filepath.Join(resolved(t, home), "AGENTS.md") + "; an old codex-usage-reserve executable is probably still installed — remove it, then run agent-usage-reserve disable and enable again"
+				want := "found both an old codex-usage-reserve block and an agent-usage-reserve block in " + filepath.Join(resolved(t, home), "AGENTS.md") + "; run \"codex-usage-reserve disable\" to remove the old block, then uninstall codex-usage-reserve"
 				if err == nil || err.Error() != want {
 					t.Fatalf("message %v, want %s", err, want)
 				}
