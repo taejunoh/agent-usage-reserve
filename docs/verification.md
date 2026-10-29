@@ -26,7 +26,7 @@ All mutation tests used disposable homes. The user's actual `~/.codex` and `~/.c
 
 ### Publication order (pending)
 
-1. Rename the GitHub repository to `taejunoh/agent-usage-reserve`.
+1. Rename the GitHub repository to `taejunoh/agent-usage-reserve`. Done 2026-10-29; the old web, raw installer, API, release asset and git URLs redirect, and the 0.1.0 one-line installer still installs and enables through the old URL.
 2. Push the branch and the tag `v0.2.0` without updating `main`.
 3. Let the release workflow publish, then verify the six archives and `checksums.txt`.
 4. In the tap, add the `agent-usage-reserve` formula and `formula_renames.json` and remove the old formula, then try `brew upgrade` against it.
