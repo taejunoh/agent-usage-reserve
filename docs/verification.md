@@ -28,7 +28,7 @@ All mutation tests used disposable homes. The user's actual `~/.codex` and `~/.c
 
 1. Rename the GitHub repository to `taejunoh/agent-usage-reserve`. Done 2026-10-29; the old web, raw installer, API, release asset and git URLs redirect, and the 0.1.0 one-line installer still installs and enables through the old URL.
 2. Push the branch and the tag `v0.2.0` without updating `main`. The release workflow marks a release Latest only when its commit is already on `main`, so `v0.2.0` publishes without Latest and `releases/latest` stays `v0.1.0` for the old installers.
-3. Let the release workflow publish, then verify the six archives and `checksums.txt`.
+3. Let the release workflow publish, then verify the six archives and `checksums.txt`. Done 2026-10-29: `v0.2.0` published without Latest (`releases/latest` stays `v0.1.0`); all six SHA-256 sums match; each archive holds `agent-usage-reserve` (`.exe` on Windows) and `LICENSE` for the named OS and architecture with version `0.2.0`; the branch `install.sh` with `AGENT_USAGE_RESERVE_VERSION=0.2.0` replaced a sandboxed 0.1.0 install, removed the old executable, warned about another on PATH, and migrated the legacy Codex block at 10%.
 4. In the tap, add the `agent-usage-reserve` formula and `formula_renames.json` and remove the old formula, then try `brew upgrade` against it.
 5. Only then fast-forward `main` and immediately run `gh release edit v0.2.0 --latest`: the one-line installers read `main` and `releases/latest`, so the two change together.
 
