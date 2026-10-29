@@ -9,7 +9,7 @@ Rename `codex-usage-reserve` to `agent-usage-reserve` and manage the same usage-
 ```text
 agent-usage-reserve enable  [--threshold 10] [--only claude|codex|all] [--codex-home PATH] [--claude-home PATH]
 agent-usage-reserve set 15  [--only claude|codex|all] [--codex-home PATH] [--claude-home PATH]
-agent-usage-reserve status  [--codex-home PATH] [--claude-home PATH]
+agent-usage-reserve status  [--only claude|codex|all] [--codex-home PATH] [--claude-home PATH]
 agent-usage-reserve disable [--only claude|codex|all] [--codex-home PATH] [--claude-home PATH]
 agent-usage-reserve --version
 ```
@@ -37,7 +37,7 @@ Home resolution per agent: explicit flag, then nonempty environment variable (`C
 - No interactive terminal (stdin is not a character device) and a prompt would be needed: change nothing, exit nonzero, and print the exact `--only` commands to run.
 - No agent detected and no `--only`: change nothing, exit nonzero, and say Codex or Claude was not found and to run again after installing one.
 
-`set` and `disable` without `--only` act on every enabled agent. `set` errors when the selected agent is not enabled. `disable` is idempotent. `status` lists every detected agent.
+`set` and `disable` without `--only` act on every enabled agent. `disable` prints a line for every detected agent. `set` errors when the selected agent is not enabled. `disable` is idempotent. `status` lists every detected agent.
 
 ### Output
 

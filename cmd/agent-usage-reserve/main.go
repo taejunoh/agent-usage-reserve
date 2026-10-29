@@ -18,7 +18,7 @@ func main() {
 	interactive := err == nil && info.Mode()&os.ModeCharDevice != 0
 	if err := reserve.Run(os.Args[1:], os.Stdin, os.Stdout, interactive, version); err != nil {
 		fmt.Fprintln(os.Stderr, "agent-usage-reserve:", err)
-		// 3: nothing was changed; the message says which command to run.
+		// 3: nothing was changed; the message says what to do next.
 		if errors.Is(err, reserve.ErrNeedsChoice) || errors.Is(err, reserve.ErrNoAgent) {
 			os.Exit(3)
 		}

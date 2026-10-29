@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 )
 
 // ErrNeedsChoice means enable had to ask which agents to use but could not:
@@ -95,25 +96,25 @@ func parse(args []string) (invocation, error) {
 		}
 		args = args[1:]
 	}
-	fs := flag.NewFlagSet(inv.command, flag.ContinueOnError)
-	fs.SetOutput(io.Discard) // errors are returned, and help is printed by Run
-	fs.Usage = func() {}
+	flags := flag.NewFlagSet(inv.command, flag.ContinueOnError)
+	flags.SetOutput(io.Discard) // errors are returned, and help is printed by Run
+	flags.Usage = func() {}
 	threshold := ""
 	if inv.command == "enable" {
-		fs.StringVar(&threshold, "threshold", "", "remaining usage threshold (1-99)")
+		flags.StringVar(&threshold, "threshold", "", "remaining usage threshold (1-99)")
 	}
-	only := fs.String("only", "", "claude, codex or all")
+	only := flags.String("only", "", "claude, codex or all")
 	for i, a := range agents {
-		fs.StringVar(&inv.homes[i], a.homeFlag, "", a.label+" home directory")
+		flags.StringVar(&inv.homes[i], a.homeFlag, "", a.label+" home directory")
 	}
-	if err := fs.Parse(args); err != nil {
+	if err := flags.Parse(args); err != nil {
 		return inv, err
 	}
-	if fs.NArg() != 0 {
-		return inv, fmt.Errorf("unexpected argument %q", fs.Arg(0))
+	if flags.NArg() != 0 {
+		return inv, fmt.Errorf("unexpected argument %q", flags.Arg(0))
 	}
 	given := map[string]bool{}
-	fs.Visit(func(f *flag.Flag) { given[f.Name] = true })
+	flags.Visit(func(f *flag.Flag) { given[f.Name] = true })
 	if given["threshold"] {
 		var err error
 		if inv.threshold, err = parseThreshold(threshold); err != nil {
@@ -167,11 +168,13 @@ func (inv invocation) candidates() ([]target, error) {
 		if err != nil {
 			return nil, err
 		}
-		_, err = os.Stat(home)
-		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		// Found means an existing directory; a file, a missing path or a
+		// path below a file is not found.
+		info, err := os.Stat(home)
+		if err != nil && !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, syscall.ENOTDIR) {
 			return nil, err
 		}
-		targets = append(targets, target{agent: a, home: home, found: err == nil})
+		targets = append(targets, target{agent: a, home: home, found: err == nil && info.IsDir()})
 	}
 	return targets, nil
 }
@@ -238,8 +241,27 @@ func (inv invocation) run(in io.Reader, out io.Writer, interactive bool) error {
 		_, err = io.WriteString(out, "Installed policy only; account usage and compliance are not checked.\n")
 		return err
 	case "disable":
-		// Disabling an agent without the policy changes nothing and still reports it.
-		return applyEach(targets, "disable", 0, out)
+		if inv.selected != nil {
+			// Disabling a selected agent without the policy changes nothing and still reports it.
+			return applyEach(targets, "disable", 0, out)
+		}
+		// Only enabled agents are changed, so a stale lock in a found home
+		// that never had the policy cannot block the others.
+		for _, t := range targets {
+			res, err := inspect(t.agent, t.home)
+			if err != nil {
+				return err
+			}
+			if res.enabled {
+				if res, err = apply(t.agent, t.home, "disable", 0); err != nil {
+					return err
+				}
+			}
+			if _, err = io.WriteString(out, statusLine(res)); err != nil {
+				return err
+			}
+		}
+		return nil
 	case "set":
 		// Check every target before changing any, so a refusal changes nothing.
 		var enabled []target

@@ -439,26 +439,30 @@ func TestSelectedHomesAreCreatedByEnable(t *testing.T) {
 func TestInvalidSelectionAndFlagsRejected(t *testing.T) {
 	h := newHomes(t, true, true)
 	before := tree(t, h.root)
-	for _, args := range [][]string{
-		{"enable", "--only", "bogus"},
-		{"enable", "--only", ""},
-		{"enable", "--only", "Claude"},
-		{"enable", "--only", "claude,codex"},
-		{"enable", "--only"},
-		{"set", "15", "--only", "both"},
-		{"status", "--only", "none"},
-		{"disable", "--only", "x"},
-		{"enable", "--only", "claude", "--codex-home", h.codex},
-		{"disable", "--only", "codex", "--claude-home", h.claude},
-		{"enable", "--codex-home", ""},
-		{"enable", "--threshold", "0"},
-		{"set", "15", "--threshold", "20"},
-		{"status", "--threshold", "20"},
-		{"status", "extra"},
-		{"bogus"},
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"enable", "--only", "bogus"}, `--only must be claude, codex or all, not "bogus"`},
+		{[]string{"enable", "--only", ""}, `--only must be claude, codex or all, not ""`},
+		{[]string{"enable", "--only", "Claude"}, `--only must be claude, codex or all, not "Claude"`},
+		{[]string{"enable", "--only", "claude,codex"}, `--only must be claude, codex or all, not "claude,codex"`},
+		{[]string{"enable", "--only"}, "flag needs an argument: -only"},
+		{[]string{"set", "15", "--only", "both"}, `--only must be claude, codex or all, not "both"`},
+		{[]string{"status", "--only", "none"}, `--only must be claude, codex or all, not "none"`},
+		{[]string{"disable", "--only", "x"}, `--only must be claude, codex or all, not "x"`},
+		{[]string{"enable", "--only", "claude", "--codex-home", h.codex}, "--codex-home conflicts with --only claude"},
+		{[]string{"disable", "--only", "codex", "--claude-home", h.claude}, "--claude-home conflicts with --only codex"},
+		{[]string{"enable", "--codex-home", ""}, "--codex-home requires a path"},
+		{[]string{"enable", "--threshold", "0"}, "from 1 to 99"},
+		{[]string{"set", "15", "--threshold", "20"}, "flag provided but not defined: -threshold"},
+		{[]string{"status", "--threshold", "20"}, "flag provided but not defined: -threshold"},
+		{[]string{"status", "extra"}, `unexpected argument "extra"`},
+		{[]string{"bogus"}, `unknown command "bogus"`},
 	} {
-		if out, err := cli(t, "1\n", true, args...); err == nil || errors.Is(err, ErrNeedsChoice) || errors.Is(err, ErrNoAgent) {
-			t.Fatalf("%v accepted: %q %v", args, out, err)
+		out, err := cli(t, "1\n", true, c.args...)
+		if err == nil || errors.Is(err, ErrNeedsChoice) || errors.Is(err, ErrNoAgent) || !strings.Contains(err.Error(), c.want) {
+			t.Fatalf("%v: want error containing %q, got %q %v", c.args, c.want, out, err)
 		}
 	}
 	assertTree(t, h.root, before)
@@ -596,18 +600,48 @@ func TestFirstErrorStopsAfterPrintedLines(t *testing.T) {
 	h := newHomes(t, true, false)
 	write(t, h.codex, []byte("not a directory"))
 	before := tree(t, h.root)
-	// Without a selection, the found agents are inspected before anything changes.
-	if out, err := cli(t, "", false, "enable"); err == nil || !strings.Contains(err.Error(), "Codex home is not a directory") || out != "" {
-		t.Fatalf("enable: %q %v", out, err)
+	// A regular file at a home is not a detected agent: the command acts on
+	// Claude alone, without a prompt, and never touches the file.
+	if out, err := cli(t, "", false, "status"); err != nil || out != claudeOff(h.claudeFile(t))+policyOnly {
+		t.Fatalf("status: %q %v", out, err)
 	}
 	assertTree(t, h.root, before)
+	if out, err := cli(t, "", false, "enable"); err != nil || out != claudeOn(10, h.claudeFile(t)) {
+		t.Fatalf("enable: %q %v", out, err)
+	}
+	if got := string(read(t, h.codex)); got != "not a directory" {
+		t.Fatalf("codex file changed: %q", got)
+	}
+	// An explicit selection still reaches the engine, which refuses the file.
 	out, err := cli(t, "", false, "enable", "--only", "all")
 	if err == nil || !strings.Contains(err.Error(), "Codex home is not a directory") || out != claudeOn(10, h.claudeFile(t)) {
 		t.Fatalf("enable --only all: %q %v", out, err)
 	}
-	out, err = cli(t, "", false, "status")
+	out, err = cli(t, "", false, "status", "--only", "all")
 	if err == nil || !strings.Contains(err.Error(), "Codex home is not a directory") || out != claudeOn(10, h.claudeFile(t)) {
-		t.Fatalf("status: %q %v", out, err)
+		t.Fatalf("status --only all: %q %v", out, err)
+	}
+}
+
+// A found home that never had the policy is reported but not touched, so a
+// foreign lock there cannot block disabling the other agent.
+func TestDisableSkipsFoundAgentsThatAreNotEnabled(t *testing.T) {
+	h := newHomes(t, true, true)
+	mustCLI(t, "enable", "--only", "codex")
+	lock := filepath.Join(h.claude, ".agent-usage-reserve.lock")
+	write(t, lock, []byte("owner"))
+	if out := mustCLI(t, "disable"); out != claudeOff(h.claudeFile(t))+codexOff(h.codexFile(t)) {
+		t.Fatalf("disable %q", out)
+	}
+	if res := mustInspect(t, codexAgent, h.codex); res.enabled {
+		t.Fatalf("codex still enabled %+v", res)
+	}
+	if string(read(t, lock)) != "owner" {
+		t.Fatal("touched the claude lock")
+	}
+	// Selecting the agent applies the engine, which honors the lock.
+	if _, err := cli(t, "", false, "disable", "--only", "claude"); err == nil || !strings.Contains(err.Error(), "cannot acquire lock") {
+		t.Fatalf("disable --only claude: %v", err)
 	}
 }
 
