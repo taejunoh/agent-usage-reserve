@@ -129,6 +129,7 @@ This tool was renamed from `codex-usage-reserve` and now manages Codex and Claud
 - **Homebrew:** `brew update` then `brew upgrade taejunoh/tap/agent-usage-reserve`. The tap renames the old formula, so the upgrade migrates automatically.
 - **Direct installer:** rerun the installer. It removes the old `codex-usage-reserve` executable from the install directory (on Windows also from the old default directory, and suggests removing that directory from your user `PATH`), because the old executable cannot see the new policy marker.
 - **Your existing policy** keeps working. It is converted to the new marker the next time you run `enable` or `set`, keeping its threshold.
+- **After upgrading, run `agent-usage-reserve enable` once** (Homebrew or not). `status` already shows Codex as enabled, but `enable` adds Claude and converts the old marker to the new one.
 - Old `.codex-usage-reserve-backup-*` files are kept untouched.
 
 The old one-line install commands keep working through GitHub's redirect after the repository rename.

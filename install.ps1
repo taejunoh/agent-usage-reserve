@@ -77,6 +77,15 @@ try {
         }
     }
 
+    # An old executable elsewhere on PATH is left alone, but it would add a second policy block.
+    $oldOnPath = Get-Command 'codex-usage-reserve' -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($oldOnPath) {
+        Write-Output "Warning: an old codex-usage-reserve is still on PATH at $($oldOnPath.Source); remove it so it cannot add a second policy block."
+    }
+
+    $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+    $onPath = ($userPath -split ';') -contains $installDir
+
     # The binary reads the agents' own home variables itself; passing them as flags would
     # force-select that agent and skip detection of the other one.
     $enableArgs = @('enable')
@@ -100,12 +109,14 @@ try {
         Write-Output "Installed and enabled: $target"
     } elseif ($enableExit -eq 3) {
         Write-Output "Installed (policy not enabled yet): $target"
+        if (-not $onPath) {
+            Write-Output ('Run the commands above as: & "' + $target + '" enable --only ...')
+        }
     } else {
         [Console]::Error.WriteLine("Installed $target, but enabling the policy failed (see the error above).")
         throw "Policy enable failed with exit code $enableExit"
     }
-    $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-    if (($userPath -split ';') -notcontains $installDir) {
+    if (-not $onPath) {
         Write-Output "Add to your user PATH: $installDir"
         Write-Output ('$env:Path = "' + $installDir + ';' + '$env:Path"')
     }

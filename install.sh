@@ -76,6 +76,12 @@ if [ -f "$old" ] && [ ! -L "$old" ]; then
   printf 'Removed old codex-usage-reserve: %s\n' "$old"
 fi
 
+# An old executable elsewhere on PATH is left alone, but it would add a second policy block.
+old_on_path=$(command -v codex-usage-reserve 2>/dev/null || true)
+case "$old_on_path" in
+  /*) if [ -f "$old_on_path" ]; then printf 'Warning: an old codex-usage-reserve is still on PATH at %s; remove it so it cannot add a second policy block.\n' "$old_on_path"; fi ;;
+esac
+
 # The binary reads the agents' own home variables itself; passing them as flags would
 # force-select that agent and skip detection of the other one.
 set -- enable
@@ -94,7 +100,13 @@ else
 fi
 case "$status" in
   0) printf 'Installed and enabled: %s\n' "$target" ;;
-  3) printf 'Installed (policy not enabled yet): %s\n' "$target" ;;
+  3)
+    printf 'Installed (policy not enabled yet): %s\n' "$target"
+    case ":${PATH-}:" in
+      *":$install_dir:"*) ;;
+      *) printf 'Run the commands above as: "%s" enable --only ...\n' "$target" ;;
+    esac
+    ;;
   *)
     printf 'Installed %s, but enabling the policy failed (see the error above).\n' "$target" >&2
     exit "$status"

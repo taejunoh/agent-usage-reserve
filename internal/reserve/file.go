@@ -37,6 +37,10 @@ type result struct {
 	changed   bool
 }
 
+// errBothGenerations means a file holds a complete old block and a complete
+// new one, which happens when an old executable ran after the new one.
+var errBothGenerations = errors.New("found both old and new managed policy blocks")
+
 func findBlock(data []byte, a agent) (*block, error) {
 	current := bytes.Count(data, []byte(markerPrefix))
 	legacy := bytes.Count(data, []byte(legacyMarkerPrefix))
@@ -45,6 +49,9 @@ func findBlock(data []byte, a agent) (*block, error) {
 	}
 	if current+legacy == 0 {
 		return nil, nil
+	}
+	if current == 2 && legacy == 2 {
+		return nil, errBothGenerations
 	}
 	if current+legacy != 2 || (current > 0 && legacy > 0) {
 		return nil, errors.New("duplicate or malformed managed policy markers; restore from backup or repair the marked block manually")
@@ -176,6 +183,9 @@ func readTargets(a agent, home string) ([]snapshot, int, *block, error) {
 	var found *block
 	for i, s := range targets {
 		b, err := findBlock(s.data, a)
+		if errors.Is(err, errBothGenerations) {
+			return targets, active, nil, fmt.Errorf("found both an old codex-usage-reserve block and an agent-usage-reserve block in %s; an old codex-usage-reserve executable is probably still installed — remove it, then run agent-usage-reserve disable and enable again", s.path)
+		}
 		if err != nil {
 			return targets, active, nil, fmt.Errorf("%s: %w", s.path, err)
 		}

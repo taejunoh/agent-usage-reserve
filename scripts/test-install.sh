@@ -124,9 +124,22 @@ sh "$ROOT/install.sh" >"$TMP/noagent.out" 2>&1 || { cat "$TMP/noagent.out" >&2; 
 assert test -x "$case_dir/install/agent-usage-reserve"
 assert grep -q "Installed (policy not enabled yet): $case_dir/install/agent-usage-reserve" "$TMP/noagent.out"
 assert grep -q 'Codex or Claude was not found' "$TMP/noagent.out"
+assert grep -q "Run the commands above as: \"$case_dir/install/agent-usage-reserve\" enable --only ..." "$TMP/noagent.out"
 assert test ! -e "$case_dir/install/codex-usage-reserve"
 assert test ! -e "$case_dir/home/.codex"
 assert test ! -e "$case_dir/home/.claude"
+
+# An old executable on PATH outside the install directory is reported, never deleted.
+new_case oldonpath
+mkdir -p "$case_dir/elsewhere"
+seed_old "$case_dir/elsewhere"
+cp "$case_dir/elsewhere/codex-usage-reserve" "$case_dir/prev-old"
+PATH="$case_dir/elsewhere:$PATH" AGENT_USAGE_RESERVE_CODEX_HOME="$case_dir/codex-home" \
+  sh "$ROOT/install.sh" >"$TMP/oldonpath.out" 2>&1 || { cat "$TMP/oldonpath.out" >&2; echo 'expected exit 0 with an old executable on PATH' >&2; exit 1; }
+assert grep -q "Installed and enabled: $case_dir/install/agent-usage-reserve" "$TMP/oldonpath.out"
+assert grep -q "Warning: an old codex-usage-reserve is still on PATH at $case_dir/elsewhere/codex-usage-reserve; remove it so it cannot add a second policy block." "$TMP/oldonpath.out"
+assert test -x "$case_dir/elsewhere/codex-usage-reserve"
+cmp "$case_dir/prev-old" "$case_dir/elsewhere/codex-usage-reserve"
 
 # Both agents found through their own variables and no terminal to prompt on: the binary must not
 # guess, so the installer reports "not enabled yet" with the --only guidance and writes nothing.

@@ -15,8 +15,8 @@ import (
 )
 
 // ErrNeedsChoice means enable had to ask which agents to use but could not:
-// stdin is not a terminal, or input ended before an answer. Nothing was
-// changed, and the wrapping error lists the exact --only commands to run.
+// stdin is not a terminal, or no valid answer came (input ended or failed, or
+// three answers were invalid). Nothing was changed, and the wrapping error lists the exact --only commands to run.
 var ErrNeedsChoice = errors.New("a choice is needed")
 
 // ErrNoAgent means enable found neither agent home and none was selected.
@@ -219,7 +219,7 @@ func (inv invocation) run(in io.Reader, out io.Writer, interactive bool) error {
 				for _, t := range candidates {
 					homes = append(homes, t.home)
 				}
-				return fmt.Errorf("%w (looked for %s); nothing was changed. Install Codex or Claude Code, then run enable again", ErrNoAgent, strings.Join(homes, " and "))
+				return fmt.Errorf("%w (looked for %s); nothing was changed. Install Codex or Claude Code, then run agent-usage-reserve enable again", ErrNoAgent, strings.Join(homes, " and "))
 			case "set":
 				return errNothingEnabled
 			}
@@ -229,8 +229,17 @@ func (inv invocation) run(in io.Reader, out io.Writer, interactive bool) error {
 	}
 	switch inv.command {
 	case "status":
+		failed := 0
 		for _, t := range targets {
 			res, err := inspect(t.agent, t.home)
+			if err != nil && inv.selected == nil {
+				// One broken agent must not hide the state of the others.
+				failed++
+				if err = writeFailure(out, t.agent, err); err != nil {
+					return err
+				}
+				continue
+			}
 			if err != nil {
 				return err
 			}
@@ -238,37 +247,43 @@ func (inv invocation) run(in io.Reader, out io.Writer, interactive bool) error {
 				return err
 			}
 		}
-		_, err = io.WriteString(out, "Installed policy only; account usage and compliance are not checked.\n")
-		return err
+		if _, err = io.WriteString(out, "Installed policy only; account usage and compliance are not checked.\n"); err != nil {
+			return err
+		}
+		return errFailed(failed)
 	case "disable":
 		if inv.selected != nil {
 			// Disabling a selected agent without the policy changes nothing and still reports it.
-			return applyEach(targets, "disable", 0, out)
+			return applyEach(targets, "disable", 0, out, nil)
 		}
 		// Only enabled agents are changed, so a stale lock in a found home
-		// that never had the policy cannot block the others.
+		// that never had the policy cannot block the others. A failing agent
+		// is reported and the rest are still processed.
+		failed := 0
 		for _, t := range targets {
 			res, err := inspect(t.agent, t.home)
-			if err != nil {
-				return err
+			if err == nil && res.enabled {
+				res, err = apply(t.agent, t.home, "disable", 0)
 			}
-			if res.enabled {
-				if res, err = apply(t.agent, t.home, "disable", 0); err != nil {
+			if err != nil {
+				failed++
+				if err = writeFailure(out, t.agent, err); err != nil {
 					return err
 				}
+				continue
 			}
 			if _, err = io.WriteString(out, statusLine(res)); err != nil {
 				return err
 			}
 		}
-		return nil
+		return errFailed(failed)
 	case "set":
 		// Check every target before changing any, so a refusal changes nothing.
 		var enabled []target
 		for _, t := range targets {
 			res, err := inspect(t.agent, t.home)
 			if err != nil {
-				return err
+				return inv.agentError(t, targets, err)
 			}
 			if res.enabled {
 				enabled = append(enabled, t)
@@ -279,14 +294,59 @@ func (inv invocation) run(in io.Reader, out io.Writer, interactive bool) error {
 		if len(enabled) == 0 {
 			return errNothingEnabled
 		}
-		return applyEach(enabled, "set", inv.threshold, out)
+		return applyEach(enabled, "set", inv.threshold, out, inv.failFast(targets))
 	}
 	if inv.selected == nil {
 		if targets, err = inv.choose(targets, in, out, interactive); err != nil {
 			return err
 		}
 	}
-	return applyEach(targets, "enable", inv.threshold, out)
+	return applyEach(targets, "enable", inv.threshold, out, inv.failFast(targets))
+}
+
+// failFast returns the error wrapper for enable and set without a selection,
+// or nil when the agents were selected explicitly.
+func (inv invocation) failFast(found []target) func(target, error) error {
+	if inv.selected != nil {
+		return nil
+	}
+	return func(t target, err error) error { return inv.agentError(t, found, err) }
+}
+
+// agentError names the failing agent and, when exactly one other agent was
+// found, says how to run the command for that one alone.
+func (inv invocation) agentError(failed target, found []target, err error) error {
+	var others []target
+	for _, t := range found {
+		if t.agent.name != failed.agent.name {
+			others = append(others, t)
+		}
+	}
+	if len(others) != 1 {
+		return fmt.Errorf("%s: %w", failed.agent.label, err)
+	}
+	command := "enable"
+	if inv.command == "set" {
+		command = fmt.Sprintf("set %d", inv.threshold)
+	}
+	return fmt.Errorf("%s: %w; to leave %s alone, run: agent-usage-reserve %s --only %s", failed.agent.label, err, failed.agent.label, command, others[0].agent.name)
+}
+
+// writeFailure prints the line for an agent that could not be inspected or changed.
+func writeFailure(out io.Writer, a agent, err error) error {
+	_, werr := fmt.Fprintf(out, "! %-*s  error: %s\n", labelWidth, a.label, err)
+	return werr
+}
+
+// errFailed is the error returned after failed agents were reported line by line.
+func errFailed(failed int) error {
+	switch failed {
+	case 0:
+		return nil
+	case 1:
+		return errors.New("1 agent failed; see the line marked !")
+	}
+	return fmt.Errorf("%d agents failed; see the lines marked !", failed)
 }
 
 // choose applies the selection rules of enable without a selection to the
@@ -297,7 +357,7 @@ func (inv invocation) choose(found []target, in io.Reader, out io.Writer, intera
 	for _, t := range found {
 		res, err := inspect(t.agent, t.home)
 		if err != nil {
-			return nil, err
+			return nil, inv.agentError(t, found, err)
 		}
 		if res.enabled {
 			enabled = append(enabled, t)
@@ -324,11 +384,8 @@ func (inv invocation) choose(found []target, in io.Reader, out io.Writer, intera
 		}
 		answer, err := ask(answers, out, "Also enable for "+newcomer.label+"? [Y/n]: ", "Please answer y or n.\n",
 			func(s string) bool { return slices.Contains([]string{"", "y", "yes", "n", "no"}, s) })
-		if errors.Is(err, io.EOF) {
-			return nil, inv.needsChoice(situation, "no answer was given", only)
-		}
 		if err != nil {
-			return nil, err
+			return nil, inv.askFailure(err, situation, only)
 		}
 		keep[newcomer.name] = answer == "" || answer[0] == 'y'
 	} else {
@@ -347,11 +404,8 @@ func (inv invocation) choose(found []target, in io.Reader, out io.Writer, intera
 		}
 		answer, err := ask(answers, out, "Choose [1]: ", "Please enter 1, 2 or 3.\n",
 			func(s string) bool { return slices.Contains([]string{"", "1", "2", "3"}, s) })
-		if errors.Is(err, io.EOF) {
-			return nil, inv.needsChoice(situation, "no answer was given", only)
-		}
 		if err != nil {
-			return nil, err
+			return nil, inv.askFailure(err, situation, only)
 		}
 		keep["claude"] = answer != "3"
 		keep["codex"] = answer != "2"
@@ -365,9 +419,16 @@ func (inv invocation) choose(found []target, in io.Reader, out io.Writer, intera
 	return chosen, nil
 }
 
+// errNoAnswer means input ended or could not be read before a valid answer.
+var errNoAnswer = errors.New("no answer was given")
+
+// errInvalidAnswers means three answers in a row were not accepted.
+var errInvalidAnswers = errors.New("no valid answer was given")
+
 // ask writes question and reads one answer per line, normalized to lower case
 // without surrounding space, until valid accepts it. It gives up after three
-// invalid answers, and returns io.EOF when input ends before a valid answer.
+// invalid answers with errInvalidAnswers, and returns errNoAnswer when input
+// ends or cannot be read first. Any other error is a failure to write.
 func ask(answers *bufio.Reader, out io.Writer, question, retry string, valid func(string) bool) (string, error) {
 	for attempt := 1; attempt <= 3; attempt++ {
 		if attempt > 1 {
@@ -380,20 +441,32 @@ func ask(answers *bufio.Reader, out io.Writer, question, retry string, valid fun
 		}
 		line, err := answers.ReadString('\n')
 		if err != nil && !errors.Is(err, io.EOF) {
-			return "", err
+			// End the prompt line so the error starts on its own line.
+			if _, werr := io.WriteString(out, "\n"); werr != nil {
+				return "", werr
+			}
+			return "", fmt.Errorf("%w (%v)", errNoAnswer, err)
 		}
 		if line == "" {
-			// End the prompt line so the error starts on its own line.
 			if _, err := io.WriteString(out, "\n"); err != nil {
 				return "", err
 			}
-			return "", io.EOF
+			return "", errNoAnswer
 		}
 		if answer := strings.ToLower(strings.TrimSpace(line)); valid(answer) {
 			return answer, nil
 		}
 	}
-	return "", errors.New("no valid answer after three tries; nothing was changed")
+	return "", errInvalidAnswers
+}
+
+// askFailure turns a prompt that got no usable answer into ErrNeedsChoice
+// with the --only commands; nothing has been changed at that point.
+func (inv invocation) askFailure(err error, situation string, only []string) error {
+	if errors.Is(err, errNoAnswer) || errors.Is(err, errInvalidAnswers) {
+		return inv.needsChoice(situation, err.Error(), only)
+	}
+	return err
 }
 
 // needsChoice wraps ErrNeedsChoice with the --only commands that make the choice.
@@ -409,11 +482,14 @@ func (inv invocation) needsChoice(situation, reason string, only []string) error
 }
 
 // applyEach runs command for each target in order, printing its line, and
-// stops at the first error.
-func applyEach(targets []target, command string, threshold int, out io.Writer) error {
+// stops at the first error, passed through wrap when it is not nil.
+func applyEach(targets []target, command string, threshold int, out io.Writer, wrap func(target, error) error) error {
 	for _, t := range targets {
 		res, err := apply(t.agent, t.home, command, threshold)
 		if err != nil {
+			if wrap != nil {
+				err = wrap(t, err)
+			}
 			return err
 		}
 		if _, err = io.WriteString(out, statusLine(res)); err != nil {

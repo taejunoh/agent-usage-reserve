@@ -236,21 +236,51 @@ func TestEnablePromptChoices(t *testing.T) {
 	}
 }
 
-func TestEnablePromptThreeInvalidAnswersAbort(t *testing.T) {
+func TestEnablePromptThreeInvalidAnswersNeedChoice(t *testing.T) {
 	for _, input := range []string{"x\nx\nx\n", "x\nx\nx\n1\n", "4\nboth\n-1\n2\n"} {
 		t.Run(fmt.Sprintf("%q", input), func(t *testing.T) {
 			h := newHomes(t, true, true)
 			before := tree(t, h.root)
 			out, err := cli(t, input, true, "enable")
-			if err == nil || errors.Is(err, ErrNeedsChoice) || errors.Is(err, ErrNoAgent) {
-				t.Fatalf("expected an abort error: %v", err)
+			if !errors.Is(err, ErrNeedsChoice) || errors.Is(err, ErrNoAgent) {
+				t.Fatalf("expected ErrNeedsChoice: %v", err)
 			}
-			if !strings.Contains(err.Error(), "nothing was changed") || strings.Count(out, "Choose [1]:") != 3 {
-				t.Fatalf("%q %v", out, err)
+			for _, want := range []string{"nothing was changed", "agent-usage-reserve enable --only all", "agent-usage-reserve enable --only claude", "agent-usage-reserve enable --only codex"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Fatalf("guidance lacks %q: %v", want, err)
+				}
+			}
+			if strings.Count(out, "Choose [1]:") != 3 {
+				t.Fatalf("%q", out)
 			}
 			assertTree(t, h.root, before)
 		})
 	}
+	// The same for the yes/no question about a newly found agent.
+	h := newHomes(t, true, true)
+	mustCLI(t, "enable", "--only", "codex")
+	before := tree(t, h.root)
+	out, err := cli(t, "maybe\nx\n?\n", true, "enable")
+	if !errors.Is(err, ErrNeedsChoice) || !strings.Contains(err.Error(), "agent-usage-reserve enable --only all") || strings.Count(out, "[Y/n]:") != 3 {
+		t.Fatalf("%q %v", out, err)
+	}
+	assertTree(t, h.root, before)
+}
+
+type failingReader struct{}
+
+func (failingReader) Read([]byte) (int, error) { return 0, errors.New("input/output error") }
+
+// Any read failure, not only end of input, means there was no way to ask.
+func TestEnablePromptReadErrorNeedsChoice(t *testing.T) {
+	h := newHomes(t, true, true)
+	before := tree(t, h.root)
+	var out bytes.Buffer
+	err := Run([]string{"enable"}, failingReader{}, &out, true, "test")
+	if !errors.Is(err, ErrNeedsChoice) || !strings.Contains(err.Error(), "agent-usage-reserve enable --only all") || !strings.Contains(err.Error(), "input/output error") {
+		t.Fatalf("%q %v", out.String(), err)
+	}
+	assertTree(t, h.root, before)
 }
 
 // End of input before a valid answer (Ctrl-D, or a character device such as
@@ -709,4 +739,88 @@ func TestHelpAndVersion(t *testing.T) {
 		t.Fatalf("version %q", out)
 	}
 	assertTree(t, h.root, before)
+}
+
+// A symlinked CLAUDE.md makes Claude fail while Codex stays healthy.
+func brokenClaudeHomes(t *testing.T) (cliHomes, string) {
+	t.Helper()
+	h := newHomes(t, true, true)
+	target := filepath.Join(h.root, "real-claude.md")
+	write(t, target, []byte("private\n"))
+	if err := os.Symlink(target, filepath.Join(h.claude, "CLAUDE.md")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	write(t, filepath.Join(h.codex, "AGENTS.md"), []byte(codexUserText))
+	mustCLI(t, "enable", "--only", "codex")
+	return h, target
+}
+
+const codexUserText = "user text\n"
+
+func TestStatusIsolatesFailingAgent(t *testing.T) {
+	h, target := brokenClaudeHomes(t)
+	before := tree(t, h.root)
+	out, err := cli(t, "", false, "status")
+	want := "! Claude  error: refusing symlink instruction target: " + filepath.Join(resolved(t, h.claude), "CLAUDE.md") + "\n" + codexOn(10, h.codexFile(t)) + policyOnly
+	if err == nil || errors.Is(err, ErrNeedsChoice) || errors.Is(err, ErrNoAgent) || out != want {
+		t.Fatalf("%q %v", out, err)
+	}
+	assertTree(t, h.root, before)
+	if string(read(t, target)) != "private\n" {
+		t.Fatal("touched the symlink target")
+	}
+	// With a selection the failure stays fail-fast and unwrapped.
+	out, err = cli(t, "", false, "status", "--only", "claude")
+	if err == nil || out != "" || !strings.Contains(err.Error(), "refusing symlink instruction target") {
+		t.Fatalf("%q %v", out, err)
+	}
+}
+
+func TestDisableIsolatesFailingAgent(t *testing.T) {
+	h, target := brokenClaudeHomes(t)
+	claudeBefore := tree(t, h.claude)
+	out, err := cli(t, "", false, "disable")
+	want := "! Claude  error: refusing symlink instruction target: " + filepath.Join(resolved(t, h.claude), "CLAUDE.md") + "\n" + codexOff(h.codexFile(t))
+	if err == nil || errors.Is(err, ErrNeedsChoice) || out != want {
+		t.Fatalf("%q %v", out, err)
+	}
+	if got := string(read(t, filepath.Join(h.codex, "AGENTS.md"))); got != codexUserText {
+		t.Fatalf("codex file not restored byte-exactly: %q", got)
+	}
+	assertTree(t, h.claude, claudeBefore)
+	if string(read(t, target)) != "private\n" {
+		t.Fatal("touched the symlink target")
+	}
+}
+
+func TestEnableAndSetNameFailingAgent(t *testing.T) {
+	h, _ := brokenClaudeHomes(t)
+	claudeBefore := tree(t, h.claude)
+	codexBefore := tree(t, h.codex)
+	path := filepath.Join(resolved(t, h.claude), "CLAUDE.md")
+	for _, c := range []struct {
+		args []string
+		hint string
+	}{
+		{[]string{"enable"}, "to leave Claude alone, run: agent-usage-reserve enable --only codex"},
+		{[]string{"set", "15"}, "to leave Claude alone, run: agent-usage-reserve set 15 --only codex"},
+	} {
+		out, err := cli(t, "", false, c.args...)
+		if err == nil || errors.Is(err, ErrNeedsChoice) || out != "" {
+			t.Fatalf("%v: %q %v", c.args, out, err)
+		}
+		if want := "Claude: refusing symlink instruction target: " + path + "; " + c.hint; err.Error() != want {
+			t.Fatalf("%v: %v, want %s", c.args, err, want)
+		}
+		assertTree(t, h.claude, claudeBefore)
+		assertTree(t, h.codex, codexBefore)
+	}
+	// With no other agent found there is no hint.
+	if err := os.RemoveAll(h.codex); err != nil {
+		t.Fatal(err)
+	}
+	_, err := cli(t, "", false, "enable")
+	if err == nil || err.Error() != "Claude: refusing symlink instruction target: "+path {
+		t.Fatalf("%v", err)
+	}
 }

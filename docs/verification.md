@@ -24,11 +24,21 @@ Date: 2026-10-29. Version: 0.2.0. Local platform: macOS arm64. Local build toolc
 
 All mutation tests used disposable homes. The user's actual `~/.codex` and `~/.claude` were not modified.
 
+### Publication order (pending)
+
+1. Rename the GitHub repository to `taejunoh/agent-usage-reserve`.
+2. Push the branch and the tag `v0.2.0` without updating `main`.
+3. Let the release workflow publish, then verify the six archives and `checksums.txt`.
+4. In the tap, add the `agent-usage-reserve` formula and `formula_renames.json` and remove the old formula, then try `brew upgrade` against it.
+5. Only then fast-forward `main`: the one-line installers read `main` and `releases/latest`.
+
+Before announcing, check by hand that the Windows prompt appears under `irm | iex`.
+
 ## 0.1.0: initial release (codex-usage-reserve)
 
 Date: 2026-10-28. Version: 0.1.0. Local platform: macOS arm64. Local build toolchain: Go 1.27.3; published releases and CI use Go 1.23; Go dependencies: standard library only.
 
-## Passed locally
+### Passed locally
 
 - `go test -count=1 -race ./...` and `go vet ./...`.
 - CLI lifecycle in an isolated Codex home: enable at 10%, set to 15%, repeated enable retains 15%, status, disable. Original instruction bytes and SHA-256 were restored, including CRLF and no final newline. A second cycle preserved instructions appended by the user after installation.
@@ -39,7 +49,7 @@ Date: 2026-10-28. Version: 0.1.0. Local platform: macOS arm64. Local build toolc
 - Homebrew formula generation from the actual final checksum manifest and Ruby syntax validation.
 - Independent specification and bounded code-quality reviews. Material Windows snapshot-identity and release repository-selection findings were corrected and reviewed again.
 
-## Passed after public deployment
+### Passed after public deployment
 
 - [Release-commit CI](https://github.com/taejunoh/codex-usage-reserve/actions/runs/40729512904) passed Go tests/vet on macOS, Linux and Windows, Unix installer integration on macOS/Linux, and the real Windows installer lifecycle using local release fixtures.
 - The Windows installer test covers one latest-tag lookup, pinned downloads, explicit version normalization, actual executable installation and enablement, preservation of a custom 15% threshold on repeat installation, and checksum failure leaving the binary and instructions intact. A script-scope issue in the new test mock was fixed before release; the actual installer completed successfully in the original run.
@@ -48,7 +58,7 @@ Date: 2026-10-28. Version: 0.1.0. Local platform: macOS arm64. Local build toolc
 - `brew install taejunoh/tap/codex-usage-reserve` succeeded against the published formula and public release asset. `codex-usage-reserve --version` returned `0.1.0`.
 - `brew test --verbose taejunoh/tap/codex-usage-reserve` passed enable/status/disable in Homebrew's isolated test home.
 
-## Execution boundaries
+### Execution boundaries
 
 The anonymous public-download and Homebrew end-to-end checks ran on macOS arm64. Windows installer behavior was exercised on GitHub's Windows runner with network fixtures; public Windows HTTP download behavior was not separately exercised on a physical Windows computer. Linux runtime tests ran on GitHub's Linux runner. The other release architectures were cross-built.
 
@@ -56,7 +66,7 @@ The executable manages an instruction policy; it does not query usage directly, 
 
 All mutation tests used disposable homes. The user's actual global instructions were not modified by this project implementation.
 
-## Published locations
+### Published locations
 
 - Public source: https://github.com/taejunoh/codex-usage-reserve
 - Version 0.1.0: https://github.com/taejunoh/codex-usage-reserve/releases/tag/v0.1.0

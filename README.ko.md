@@ -129,6 +129,7 @@ Copy-Item -LiteralPath $backup -Destination $target -Force # 전체 파일 복�
 - **Homebrew:** `brew update` 후 `brew upgrade taejunoh/tap/agent-usage-reserve`를 실행하세요. tap이 이전 formula 이름을 새 이름으로 연결하므로 업그레이드하면 자동으로 이전됩니다.
 - **직접 설치기:** 설치기를 다시 실행하세요. 설치 디렉터리의 이전 `codex-usage-reserve` 실행 파일을 삭제합니다(Windows에서는 이전 기본 디렉터리에서도 삭제하며, 그 디렉터리를 사용자 `PATH`에서 제거하라고 안내합니다). 이전 실행 파일은 새 정책 표시를 인식하지 못하기 때문입니다.
 - **기존 정책**은 계속 동작합니다. 다음에 `enable` 또는 `set`을 실행할 때 기준을 유지한 채 새 표시로 변환됩니다.
+- **업그레이드한 뒤 `agent-usage-reserve enable`을 한 번 실행하세요**(Homebrew 사용 여부와 관계없이). `status`에는 이미 Codex가 활성화된 것으로 보이지만, `enable`을 실행해야 Claude가 추가되고 이전 표시가 새 표시로 바뀝니다.
 - 이전 `.codex-usage-reserve-backup-*` 파일은 그대로 보존됩니다.
 
 저장소 이름이 바뀐 뒤에도 GitHub 리디렉션 덕분에 기존 한 줄 설치 명령은 계속 동작합니다.
