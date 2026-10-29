@@ -131,7 +131,13 @@ func TestValidationAndReadOnlyMissingHome(t *testing.T) {
 }
 
 func TestMalformedMarkersAndSymlinks(t *testing.T) {
-	for _, content := range []string{"<!-- codex-usage-reserve:managed:v1:begin -->", "<!-- codex-usage-reserve:managed:v2:begin -->"} {
+	for _, content := range []string{
+		"<!-- codex-usage-reserve:managed:v1:begin -->",
+		"<!-- codex-usage-reserve:managed:v2:begin -->",
+		"<!-- agent-usage-reserve:managed:v1:begin -->",
+		"<!-- agent-usage-reserve:managed:v2:begin agent=codex threshold=10 padding=0 -->\n<!-- agent-usage-reserve:managed:v2:end -->\n",
+		"<!-- agent-usage-reserve:managed:v1:begin agent=codex threshold=100 padding=0 -->\n<!-- agent-usage-reserve:managed:v1:end -->\n",
+	} {
 		home := t.TempDir()
 		path := filepath.Join(home, "AGENTS.md")
 		write(t, path, []byte(content))
@@ -161,7 +167,7 @@ func TestLockBackupAndMode(t *testing.T) {
 	home := t.TempDir()
 	path := filepath.Join(home, "AGENTS.md")
 	write(t, path, []byte("original"))
-	lock := filepath.Join(home, ".codex-usage-reserve.lock")
+	lock := filepath.Join(home, ".agent-usage-reserve.lock")
 	write(t, lock, []byte("owner"))
 	if _, e := run(t, home, "enable"); e == nil {
 		t.Fatal("ignored lock")
@@ -173,7 +179,7 @@ func TestLockBackupAndMode(t *testing.T) {
 	if _, e := run(t, home, "enable"); e != nil {
 		t.Fatal(e)
 	}
-	backups, e := filepath.Glob(filepath.Join(home, ".codex-usage-reserve-backup-*"))
+	backups, e := filepath.Glob(filepath.Join(home, ".agent-usage-reserve-backup-*"))
 	if e != nil || len(backups) != 1 {
 		t.Fatalf("backups %v %v", backups, e)
 	}
@@ -203,7 +209,7 @@ func TestExternalEditsAreNotOverwritten(t *testing.T) {
 			home := t.TempDir()
 			path := filepath.Join(home, "AGENTS.md")
 			write(t, path, []byte("before"))
-			targets, active, _, e := readTargets(home)
+			targets, active, _, e := readTargets(codexAgent, home)
 			if e != nil {
 				t.Fatal(e)
 			}
@@ -302,7 +308,7 @@ func TestReplacedLockIsNotRemoved(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	path := filepath.Join(home, ".codex-usage-reserve.lock")
+	path := filepath.Join(home, ".agent-usage-reserve.lock")
 	// Keep the original inode alive so inode reuse cannot hide the replacement.
 	if e = os.Rename(path, path+".old"); e != nil {
 		t.Fatal(e)
@@ -359,7 +365,7 @@ func TestSymlinkSubstitutedAfterSnapshotIsRefused(t *testing.T) {
 	home := t.TempDir()
 	path := filepath.Join(home, "AGENTS.md")
 	write(t, path, []byte("same bytes"))
-	targets, active, _, err := readTargets(home)
+	targets, active, _, err := readTargets(codexAgent, home)
 	if err != nil {
 		t.Fatal(err)
 	}
