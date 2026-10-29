@@ -38,6 +38,6 @@ jobs:
         with:
           go-version: '1.23.x'
           cache: false
-      - run: go build -o /tmp/codex-usage-reserve ./cmd/codex-usage-reserve
+      - run: go build -o /tmp/agent-usage-reserve ./cmd/agent-usage-reserve
       - run: sh -n install.sh
       - run: sh scripts/test-install.sh

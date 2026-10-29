@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
-$repo = 'taejunoh/codex-usage-reserve'
-$version = $env:CODEX_USAGE_RESERVE_VERSION
+$repo = 'taejunoh/agent-usage-reserve'
+$version = $env:AGENT_USAGE_RESERVE_VERSION
 if (-not $version) {
     $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/latest"
     $tag = [string]$release.tag_name
@@ -13,18 +13,18 @@ if ($tag -notmatch '^v?([0-9]+)\.([0-9]+)\.([0-9]+)$') {
 $version = $tag -replace '^v', ''
 $tag = "v$version"
 $arch = if ($env:PROCESSOR_ARCHITECTURE -match 'ARM64') { 'arm64' } else { 'amd64' }
-$archive = "codex-usage-reserve_$($version)_windows_$($arch).tar.gz"
-$base = if ($env:CODEX_USAGE_RESERVE_RELEASE_BASE_URL) {
-    "$($env:CODEX_USAGE_RESERVE_RELEASE_BASE_URL.TrimEnd('/'))/$tag"
+$archive = "agent-usage-reserve_$($version)_windows_$($arch).tar.gz"
+$base = if ($env:AGENT_USAGE_RESERVE_RELEASE_BASE_URL) {
+    "$($env:AGENT_USAGE_RESERVE_RELEASE_BASE_URL.TrimEnd('/'))/$tag"
 } else {
     "https://github.com/$repo/releases/download/$tag"
 }
-$installDir = if ($env:CODEX_USAGE_RESERVE_INSTALL_DIR) {
-    $env:CODEX_USAGE_RESERVE_INSTALL_DIR
+$installDir = if ($env:AGENT_USAGE_RESERVE_INSTALL_DIR) {
+    $env:AGENT_USAGE_RESERVE_INSTALL_DIR
 } else {
-    Join-Path $env:LOCALAPPDATA 'Programs/codex-usage-reserve/bin'
+    Join-Path $env:LOCALAPPDATA 'Programs/agent-usage-reserve/bin'
 }
-$temp = Join-Path ([IO.Path]::GetTempPath()) ("codex-usage-reserve-" + [guid]::NewGuid())
+$temp = Join-Path ([IO.Path]::GetTempPath()) ("agent-usage-reserve-" + [guid]::NewGuid())
 $stage = Join-Path $temp 'unpacked'
 New-Item -ItemType Directory -Path $stage -Force | Out-Null
 try {
@@ -41,32 +41,49 @@ try {
     if ($actual -ne $expected) {
         throw "SHA-256 mismatch for $archive"
     }
-    & tar.exe -xzf $archivePath -C $stage 'codex-usage-reserve.exe'
+    & tar.exe -xzf $archivePath -C $stage 'agent-usage-reserve.exe'
     if ($LASTEXITCODE -ne 0) {
         throw 'Could not extract the release executable.'
     }
-    $staged = Join-Path $stage 'codex-usage-reserve.exe'
+    $staged = Join-Path $stage 'agent-usage-reserve.exe'
     if (-not (Test-Path -LiteralPath $staged -PathType Leaf)) {
-        throw 'Release archive did not contain codex-usage-reserve.exe.'
+        throw 'Release archive did not contain agent-usage-reserve.exe.'
     }
     $reportedVersion = (& $staged --version | Out-String).Trim()
     if ($LASTEXITCODE -ne 0 -or $reportedVersion -ne $version) {
         throw "Release binary version does not match tag $tag"
     }
     New-Item -ItemType Directory -Path $installDir -Force | Out-Null
-    $target = Join-Path $installDir 'codex-usage-reserve.exe'
+    $target = Join-Path $installDir 'agent-usage-reserve.exe'
     Move-Item -LiteralPath $staged -Destination $target -Force
 
+    # The old executable cannot see the new marker and would add a second policy block.
+    $old = Join-Path $installDir 'codex-usage-reserve.exe'
+    $oldItem = Get-Item -LiteralPath $old -Force -ErrorAction SilentlyContinue
+    if ($oldItem -and -not $oldItem.PSIsContainer -and -not $oldItem.LinkType) {
+        Remove-Item -LiteralPath $old -Force
+        Write-Output "Removed old codex-usage-reserve: $old"
+    }
+
+    # The binary reads the agents' own home variables itself; passing them as flags would
+    # force-select that agent and skip detection of the other one.
     $enableArgs = @('enable')
-    $codexHome = if ($env:CODEX_USAGE_RESERVE_CODEX_HOME) { $env:CODEX_USAGE_RESERVE_CODEX_HOME } else { $env:CODEX_HOME }
-    if ($codexHome) {
-        $enableArgs += @('--codex-home', $codexHome)
+    if ($env:AGENT_USAGE_RESERVE_CODEX_HOME) {
+        $enableArgs += @('--codex-home', $env:AGENT_USAGE_RESERVE_CODEX_HOME)
     }
+    if ($env:AGENT_USAGE_RESERVE_CLAUDE_HOME) {
+        $enableArgs += @('--claude-home', $env:AGENT_USAGE_RESERVE_CLAUDE_HOME)
+    }
+    # The console is used directly, so the binary can prompt when both agents are found.
     & $target @enableArgs
-    if ($LASTEXITCODE -ne 0) {
-        throw "Policy enable failed with exit code $LASTEXITCODE"
+    $enableExit = $LASTEXITCODE
+    if ($enableExit -eq 0) {
+        Write-Output "Installed and enabled: $target"
+    } elseif ($enableExit -eq 3) {
+        Write-Output "Installed (policy not enabled yet): $target"
+    } else {
+        throw "Policy enable failed with exit code $enableExit"
     }
-    Write-Output "Installed and enabled: $target"
     $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
     if (($userPath -split ';') -notcontains $installDir) {
         Write-Output "Add to your user PATH: $installDir"
