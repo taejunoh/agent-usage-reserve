@@ -2,6 +2,7 @@ package reserve
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -202,8 +203,10 @@ func TestClaudeLifecyclePreservesBytes(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			f.WriteString("user addition\r\n")
-			f.Close()
+			_, err = f.WriteString("user addition\r\n")
+			if err = errors.Join(err, f.Close()); err != nil {
+				t.Fatal(err)
+			}
 			if res = mustApply(t, claudeAgent, home, "disable", 0); res.enabled || !res.changed || res.target != target {
 				t.Fatalf("disable %+v", res)
 			}
@@ -275,7 +278,9 @@ func TestLegacyMarkerMigration(t *testing.T) {
 	for _, c := range []struct {
 		prefix  string
 		padding int
-	}{{"", 0}, {"user text\r\n", 1}, {"user text", 2}} {
+	}{{"", 0}, {"user text\r\n", 1}, {"user text", 2},
+		// Recorded padding that differs from what enable would choose for the prefix.
+		{"user text\n", 0}, {"user text\n\n", 1}, {"user text\n", 2}, {"", 1}} {
 		legacy := c.prefix + legacyBlock(7, c.padding) + suffix
 		setup := func(t *testing.T) (string, string) {
 			home := t.TempDir()
@@ -283,7 +288,7 @@ func TestLegacyMarkerMigration(t *testing.T) {
 			write(t, path, []byte(legacy))
 			return home, path
 		}
-		t.Run(fmt.Sprintf("padding%d", c.padding), func(t *testing.T) {
+		t.Run(fmt.Sprintf("%q-padding%d", c.prefix, c.padding), func(t *testing.T) {
 			t.Run("inspect", func(t *testing.T) {
 				home, path := setup(t)
 				res := mustInspect(t, codexAgent, home)
@@ -327,6 +332,41 @@ func TestLegacyMarkerMigration(t *testing.T) {
 				}
 			})
 		})
+	}
+}
+
+// Catches a rewrite that recomputes padding from the prefix instead of keeping
+// the recorded value, which would make disable remove or leave the wrong bytes.
+func TestRewriteKeepsRecordedPadding(t *testing.T) {
+	const suffix = "later user text\n"
+	for _, a := range agents {
+		for _, c := range []struct {
+			prefix  string
+			padding int
+		}{{"user text\n", 0}, {"user text\n\n", 1}, {"user text\n", 2}, {"", 1}, {"", 2}} {
+			t.Run(fmt.Sprintf("%s-%q-padding%d", a.name, c.prefix, c.padding), func(t *testing.T) {
+				home := t.TempDir()
+				path := filepath.Join(home, a.targets[0])
+				write(t, path, []byte(c.prefix+newBlock(a.name, 7, c.padding, a.policy(7))+suffix))
+				for _, op := range []struct {
+					command         string
+					threshold, want int
+				}{{"set", 20, 20}, {"enable", 15, 15}, {"enable", 0, 15}} {
+					res := mustApply(t, a, home, op.command, op.threshold)
+					if !res.enabled || res.threshold != op.want || res.changed != (op.threshold != 0) {
+						t.Fatalf("%s %d: %+v", op.command, op.threshold, res)
+					}
+					want := c.prefix + newBlock(a.name, op.want, c.padding, a.policy(op.want)) + suffix
+					if got := string(read(t, path)); got != want {
+						t.Fatalf("%s %d wrote %q\nwant %q", op.command, op.threshold, got, want)
+					}
+				}
+				mustApply(t, a, home, "disable", 0)
+				if got := string(read(t, path)); got != c.prefix+suffix {
+					t.Fatalf("disable left %q", got)
+				}
+			})
+		}
 	}
 }
 
@@ -387,8 +427,8 @@ func TestInspectDoesNotLockOrCreate(t *testing.T) {
 		if res = mustApply(t, a, missing, "disable", 0); res.enabled || res.changed {
 			t.Fatalf("%s disable missing home %+v", a.name, res)
 		}
-		if _, err := apply(a, missing, "set", 15); err == nil {
-			t.Fatalf("%s set accepted missing home", a.name)
+		if _, err := apply(a, missing, "set", 15); err == nil || !strings.Contains(err.Error(), a.label+" policy is disabled; run enable first") {
+			t.Fatalf("%s set on missing home: %v", a.name, err)
 		}
 	}
 	if _, err := os.Lstat(missing); !os.IsNotExist(err) {

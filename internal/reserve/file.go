@@ -26,7 +26,6 @@ var legacyBeginPattern = regexp.MustCompile(`^<!-- codex-usage-reserve:managed:v
 // block spans the managed region, including its recorded leading newlines.
 type block struct {
 	start, end, threshold, padding int
-	legacy                         bool
 }
 
 // result is the state of one agent's policy after apply or inspect.
@@ -90,7 +89,7 @@ func findBlock(data []byte, a agent) (*block, error) {
 	if stop > 0 && data[stop-1] != '\n' {
 		return nil, errors.New("managed policy end marker is not on its own line")
 	}
-	return &block{start: start - padding, end: stop + len(end), threshold: threshold, padding: padding, legacy: legacy > 0}, nil
+	return &block{start: start - padding, end: stop + len(end), threshold: threshold, padding: padding}, nil
 }
 
 // managedBlock renders the current-format block; padding is the count of
@@ -262,7 +261,7 @@ func apply(a agent, home, command string, threshold int) (result, error) {
 	}
 	if !exists {
 		if command == "set" {
-			return res, errors.New("policy is disabled; run enable first")
+			return res, disabledError(a)
 		}
 		res.target = filepath.Join(home, a.targets[0])
 		return res, nil
@@ -279,7 +278,7 @@ func apply(a agent, home, command string, threshold int) (result, error) {
 	target := targets[active]
 	res.target = target.path
 	if command == "set" && b == nil {
-		return res, errors.New("policy is disabled; run enable first")
+		return res, disabledError(a)
 	}
 	if command == "disable" && b == nil {
 		return res, nil
@@ -295,7 +294,7 @@ func apply(a agent, home, command string, threshold int) (result, error) {
 			}
 		}
 		if b != nil {
-			// Rewrites a legacy block to the current marker, keeping its padding.
+			// Rewrites the existing block (legacy or current) in place, keeping its recorded padding.
 			next = append(append(append([]byte{}, target.data[:b.start]...), managedBlock(a, threshold, b.padding)...), target.data[b.end:]...)
 		} else {
 			padding := 0
@@ -316,6 +315,21 @@ func apply(a agent, home, command string, threshold int) (result, error) {
 		res.changed = true
 	}
 	return res, nil
+}
+
+func disabledError(a agent) error {
+	return fmt.Errorf("%s policy is disabled; run enable first", a.label)
+}
+
+func parseThreshold(s string) (int, error) {
+	if s == "" || strings.IndexFunc(s, func(r rune) bool { return r < '0' || r > '9' }) >= 0 {
+		return 0, errors.New("threshold must be an integer from 1 to 99")
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 1 || n > 99 {
+		return 0, errors.New("threshold must be an integer from 1 to 99")
+	}
+	return n, nil
 }
 
 func acquireLock(home string) (func(), error) {

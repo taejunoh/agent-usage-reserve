@@ -2,6 +2,7 @@ package reserve
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -9,11 +10,12 @@ import (
 	"testing"
 )
 
+// run drives the CLI for Codex alone, so Claude's home is never resolved.
 func run(t *testing.T, home string, args ...string) (string, error) {
 	t.Helper()
 	var out bytes.Buffer
-	args = append(args, "--codex-home", home)
-	err := Run(args, &out, "test")
+	args = append(args, "--only", "codex", "--codex-home", home)
+	err := Run(args, strings.NewReader(""), &out, false, "test")
 	return out.String(), err
 }
 func read(t *testing.T, path string) []byte {
@@ -64,8 +66,10 @@ func TestLifecyclePreservesBytes(t *testing.T) {
 			if e != nil {
 				t.Fatal(e)
 			}
-			f.WriteString("user addition\r\n")
-			f.Close()
+			_, e = f.WriteString("user addition\r\n")
+			if e = errors.Join(e, f.Close()); e != nil {
+				t.Fatal(e)
+			}
 			if _, e := run(t, home, "disable"); e != nil {
 				t.Fatal(e)
 			}
@@ -261,9 +265,16 @@ func TestDuplicateBlocksAndUnmarkedPolicy(t *testing.T) {
 func TestExplicitThresholdEnvironmentAndVersion(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("CODEX_HOME", home)
+	// Keep detection away from the real ~/.claude.
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(t.TempDir(), "missing"))
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
 	var out bytes.Buffer
-	if e := Run([]string{"enable"}, &out, "dev"); e != nil {
+	if e := Run([]string{"enable"}, strings.NewReader(""), &out, false, "dev"); e != nil {
 		t.Fatal(e)
+	}
+	if res := mustInspect(t, codexAgent, home); !res.enabled || res.threshold != 10 {
+		t.Fatalf("CODEX_HOME not used: %+v", res)
 	}
 	if _, e := run(t, home, "enable", "--threshold=17"); e != nil {
 		t.Fatal(e)
@@ -272,7 +283,7 @@ func TestExplicitThresholdEnvironmentAndVersion(t *testing.T) {
 		t.Fatalf("%s %v", output, e)
 	}
 	out.Reset()
-	if e := Run([]string{"--version"}, &out, "0.1.0"); e != nil || out.String() != "0.1.0\n" {
+	if e := Run([]string{"--version"}, strings.NewReader(""), &out, false, "0.1.0"); e != nil || out.String() != "0.1.0\n" {
 		t.Fatalf("%q %v", out.String(), e)
 	}
 	explicit := t.TempDir()
@@ -322,7 +333,7 @@ func TestReplacedLockIsNotRemoved(t *testing.T) {
 
 func TestSetHelp(t *testing.T) {
 	var out bytes.Buffer
-	if err := Run([]string{"set", "--help"}, &out, "dev"); err != nil {
+	if err := Run([]string{"set", "--help"}, strings.NewReader(""), &out, false, "dev"); err != nil {
 		t.Fatalf("help returned error: %v", err)
 	}
 	if !strings.Contains(out.String(), "set 15") {

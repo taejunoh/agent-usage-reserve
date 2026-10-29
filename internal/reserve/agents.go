@@ -11,7 +11,7 @@ type agent struct {
 	defaultDir  string   // home directory relative to the user's home
 	targets     []string // candidate files; a later entry wins when nonempty
 	legacy      bool     // also parse codex-usage-reserve markers
-	note        string   // caveat printed next to an enabled policy
+	note        string   // caveat printed on every output line for this agent
 	policy      func(threshold int) string
 }
 
